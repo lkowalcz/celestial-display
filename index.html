@@ -201,24 +201,51 @@ function keplerE(M, e) {
    ============================================================ */
 const orrery = {
   title: 'Heliocentric',
-  detail: 'Log-radial · Keplerian motion · 1 s ≈ 6 days',
+  detail: 'Ephemeris · log-radial · 1 s = 1 day',
 
-  // a (AU), e, longitude of perihelion ϖ (deg), period (yr), color, size, name
+  // JPL Keplerian elements, mean ecliptic & equinox of J2000 (Standish).
+  // Each element is [value at J2000, rate per Julian century].
+  // Planets: Table 1 (valid 1800–2050 AD); Pluto: Table 2a, with its
+  // extra b·T² term in mean anomaly. Ecliptic-plane projection (i, Ω
+  // dropped): inclinations ≤ 7° except Pluto's 17°.
+  // https://ssd.jpl.nasa.gov/planets/approx_pos.html
   planets: [
-    { a: 0.387,  e: 0.206, w:  77, P: 0.241,  c: '#B8B2A8', s: 1.7, name: 'MERCURY' },
-    { a: 0.723,  e: 0.007, w: 131, P: 0.615,  c: '#E6D3A8', s: 2.4, name: 'VENUS'   },
-    { a: 1.000,  e: 0.017, w: 103, P: 1.000,  c: '#7FB4D9', s: 2.5, name: 'EARTH'   },
-    { a: 1.524,  e: 0.093, w: 336, P: 1.881,  c: '#D08159', s: 2.0, name: 'MARS'    },
-    { a: 5.203,  e: 0.048, w:  14, P: 11.86,  c: '#D9B48A', s: 4.4, name: 'JUPITER' },
-    { a: 9.537,  e: 0.054, w:  93, P: 29.45,  c: '#E3CFA0', s: 3.8, name: 'SATURN'  },
-    { a: 19.19,  e: 0.047, w: 173, P: 84.02,  c: '#9FD4D9', s: 3.0, name: 'URANUS'  },
-    { a: 30.07,  e: 0.009, w:  48, P: 164.8,  c: '#6E93D6', s: 3.0, name: 'NEPTUNE' },
-    { a: 39.48,  e: 0.249, w: 224, P: 248.0,  c: '#8E8880', s: 1.5, name: 'PLUTO', dashed: true },
+    { a: [ 0.38709927,  0.00000037], e: [0.20563593,  0.00001906], L: [ 252.25032350, 149472.67411175], w: [  77.45779628,  0.16047689], c: '#B8B2A8', s: 1.7, name: 'MERCURY' },
+    { a: [ 0.72333566,  0.00000390], e: [0.00677672, -0.00004107], L: [ 181.97909950,  58517.81538729], w: [ 131.60246718,  0.00268329], c: '#E6D3A8', s: 2.4, name: 'VENUS'   },
+    { a: [ 1.00000261,  0.00000562], e: [0.01671123, -0.00004392], L: [ 100.46457166,  35999.37244981], w: [ 102.93768193,  0.32327364], c: '#7FB4D9', s: 2.5, name: 'EARTH'   },
+    { a: [ 1.52371034,  0.00001847], e: [0.09339410,  0.00007882], L: [  -4.55343205,  19140.30268499], w: [ -23.94362959,  0.44441088], c: '#D08159', s: 2.0, name: 'MARS'    },
+    { a: [ 5.20288700, -0.00011607], e: [0.04838624, -0.00013253], L: [  34.39644051,   3034.74612775], w: [  14.72847983,  0.21252668], c: '#D9B48A', s: 4.4, name: 'JUPITER' },
+    { a: [ 9.53667594, -0.00125060], e: [0.05386179, -0.00050991], L: [  49.95424423,   1222.49362201], w: [  92.59887831, -0.41897216], c: '#E3CFA0', s: 3.8, name: 'SATURN'  },
+    { a: [19.18916464, -0.00196176], e: [0.04725744, -0.00004397], L: [ 313.23810451,    428.48202785], w: [ 170.95427630,  0.40805281], c: '#9FD4D9', s: 3.0, name: 'URANUS'  },
+    { a: [30.06992276,  0.00026291], e: [0.00859048,  0.00005105], L: [ -55.12002969,    218.45945325], w: [  44.96476227, -0.32241464], c: '#6E93D6', s: 3.0, name: 'NEPTUNE' },
+    { a: [39.48686035,  0.00449751], e: [0.24885238,  0.00006016], L: [ 238.96535011,    145.18042903], w: [ 224.09702598, -0.00968827], b: -0.01262724, c: '#8E8880', s: 1.5, name: 'PLUTO', dashed: true },
   ],
 
-  EARTH_PERIOD_S: 60,       // Earth completes one orbit in 60 s of display time
+  EARTH_PERIOD_S: 365.25,   // 1 s of display time = 1 day (Earth orbits in ~6 min)
   R_MIN_AU: 0.28, R_MAX_AU: 52,
   belt: null, trojans: null,
+
+  // The scene is a clock: each showing sweeps a real-time window centered
+  // on "now" — half past, half future. enter() anchors display time to the
+  // wall clock at scene entry; draw() maps scene seconds to Julian dates.
+  tAnchor: 0, jdAnchor: 0, _iso: null,
+
+  enter(tClock) {
+    this.tAnchor = tClock;
+    this.jdAnchor = Date.now() / 86400000 + 2440587.5;   // current JD (UTC)
+    this._iso = null;
+  },
+
+  /* osculating elements at T Julian centuries from J2000 → mean anomaly etc. */
+  elements(pl, T) {
+    const a = pl.a[0] + pl.a[1] * T;
+    const e = pl.e[0] + pl.e[1] * T;
+    const L = pl.L[0] + pl.L[1] * T;
+    const w = pl.w[0] + pl.w[1] * T;
+    let M = (L - w + (pl.b ? pl.b * T * T : 0)) * Math.PI / 180;
+    M = ((M % TAU) + TAU) % TAU;
+    return { a, e, M, wRad: w * Math.PI / 180 };
+  },
 
   init() {
     // --- main belt with Kirkwood gaps ---
@@ -244,15 +271,13 @@ const orrery = {
     this.belt = belt;
 
     // --- Jupiter trojans (L4 / L5 clumps, co-orbital) ---
-    const jup = this.planets[4];
-    const nJ = TAU / (this.EARTH_PERIOD_S * jup.P);
+    const aJ = this.planets[4].a[0];
     const trojans = [];
     for (const sign of [1, -1]) {
       for (let i = 0; i < Math.round(130 * D); i++) {
         trojans.push({
-          a: jup.a * (1 + gauss() * 0.015),
+          a: aJ * (1 + gauss() * 0.015),
           lead: sign * (Math.PI / 3 + gauss() * 0.16),
-          n: nJ,
           alpha: rand(0.10, 0.32),
         });
       }
@@ -269,6 +294,19 @@ const orrery = {
   draw(t) {
     const cx = W / 2, cy = H / 2, minDim = Math.min(W, H);
     const font = (px) => `${px}px 'IBM Plex Mono', monospace`;
+
+    // display epoch: window of ±(hold/2) days centered on "now" at mid-hold
+    const DAYS_PER_SEC = 365.25 / this.EARTH_PERIOD_S;
+    const jd = this.jdAnchor
+      + (t - this.tAnchor - (FADE + SCENE_HOLD / 2)) * DAYS_PER_SEC * MOTION;
+    const T = (jd - 2451545.0) / 36525;   // Julian centuries from J2000
+
+    // caption date readout — the clock hand
+    const iso = new Date((jd - 2440587.5) * 86400000).toISOString().slice(0, 10);
+    if (iso !== this._iso) {
+      this._iso = iso;
+      detailEl.textContent = `${iso} · log-radial · 1 s = 1 day`;
+    }
 
     // --- AU reference rings ---
     if (CONFIG.labels) {
@@ -306,10 +344,10 @@ const orrery = {
 
     // --- trojans (referenced to Jupiter's current mean longitude) ---
     const jup = this.planets[4];
-    const Mjup = 0.8 + (TAU / (this.EARTH_PERIOD_S * jup.P)) * t * MOTION;
+    const Ljup = ((jup.L[0] + jup.L[1] * T) * Math.PI / 180) % TAU;
     ctx.fillStyle = '#9A8F7C';
     for (const p of this.trojans) {
-      const th = Mjup + p.lead;
+      const th = Ljup + p.lead;
       const R = this.Rmap(p.a, minDim);
       ctx.globalAlpha = p.alpha;
       ctx.fillRect(cx + R * Math.cos(th) - 0.5, cy - R * Math.sin(th) - 0.5, 1, 1);
@@ -317,15 +355,15 @@ const orrery = {
     ctx.globalAlpha = 1;
 
     // --- orbits & planets ---
-    for (const [i, pl] of this.planets.entries()) {
-      const wRad = pl.w * Math.PI / 180;
+    for (const pl of this.planets) {
+      const { a, e, M, wRad } = this.elements(pl, T);
 
       // orbit path: r(ν) = a(1−e²)/(1+e·cosν), log-mapped
       ctx.beginPath();
       const steps = 180;
       for (let s = 0; s <= steps; s++) {
         const nu = (s / steps) * TAU;
-        const r = pl.a * (1 - pl.e * pl.e) / (1 + pl.e * Math.cos(nu));
+        const r = a * (1 - e * e) / (1 + e * Math.cos(nu));
         const R = this.Rmap(r, minDim);
         const th = nu + wRad;
         const x = cx + R * Math.cos(th), y = cy - R * Math.sin(th);
@@ -337,15 +375,13 @@ const orrery = {
       ctx.stroke();
       ctx.setLineDash([]);
 
-      // planet position via Kepler's equation
-      const n = TAU / (this.EARTH_PERIOD_S * pl.P);
-      const M = i * 1.9 + n * t * MOTION;   // staggered initial phases
-      const E = keplerE(M % TAU, pl.e);
+      // true position at the display epoch via Kepler's equation
+      const E = keplerE(M, e);
       const nu = 2 * Math.atan2(
-        Math.sqrt(1 + pl.e) * Math.sin(E / 2),
-        Math.sqrt(1 - pl.e) * Math.cos(E / 2)
+        Math.sqrt(1 + e) * Math.sin(E / 2),
+        Math.sqrt(1 - e) * Math.cos(E / 2)
       );
-      const r = pl.a * (1 - pl.e * Math.cos(E));
+      const r = a * (1 - e * Math.cos(E));
       const R = this.Rmap(r, minDim);
       const th = nu + wRad;
       const x = cx + R * Math.cos(th), y = cy - R * Math.sin(th);
@@ -566,7 +602,8 @@ function setCaption(i) {
   titleEl.textContent = scenes[i].title;
   detailEl.textContent = scenes[i].detail;
 }
-setCaption(0);
+setCaption(current);
+scenes[current].enter?.(sceneClock);
 requestAnimationFrame(() => captionEl.classList.add('visible'));
 
 function advance(dir) {
@@ -574,6 +611,7 @@ function advance(dir) {
   phase = 'in';
   phaseStart = performance.now() / 1000;
   sceneClock = rand(0, 500);      // desynchronize scene starting states
+  scenes[current].enter?.(sceneClock);
   captionEl.classList.remove('visible');
   setCaption(current);
   setTimeout(() => captionEl.classList.add('visible'), 400);

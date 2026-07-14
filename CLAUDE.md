@@ -57,8 +57,12 @@ Each scene is an object: `{ title, detail, init(), draw(t) }`.
   in all particle counts and angular speeds.
 
 Current scenes:
-1. `orrery` — log-radial heliocentric solar system. Kepler-solved positions,
-   Kirkwood-gapped asteroid belt, Jupiter trojans, 1/10 AU reference rings.
+1. `orrery` — log-radial heliocentric solar system on real ephemeris:
+   JPL/Standish J2000 elements + rates, Kepler-solved. Runs as a clock —
+   each showing sweeps a time window centered on the actual current date
+   (half past, half future) at 1 s = 1 day, with a live date readout in
+   the caption. Kirkwood-gapped asteroid belt (statistical), Jupiter
+   trojans tied to Jupiter's true mean longitude, 1/10 AU reference rings.
 2. `starfield` — all-sky equirectangular star field with tilted galactic
    band. SYNTHETIC — flagship upgrade is replacing it with Gaia DR3
    (see docs/ROADMAP.md and scripts/gaia_preprocess.py).
