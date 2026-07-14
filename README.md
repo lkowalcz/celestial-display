@@ -57,9 +57,12 @@ build.
 The star field renders real Gaia DR3 astrometry: ~482k stars to G < 10
 (`data/gaia_stars.bin`, built by `scripts/gaia_preprocess.py`), with the
 brightest ~20 stars — which saturate Gaia — patched in from Hipparcos.
-Offline or over `file://` it falls back to a synthetic field and says so
-in the caption. The cosmic web is still synthetic; the upgrade path —
-SDSS or IllustrisTNG — is documented in `docs/ROADMAP.md`.
+The large-scale structure scene renders the SDSS DR18 main galaxy
+sample: 736k spectroscopic redshifts (`data/sdss_galaxies.bin`, built by
+`scripts/sdss_preprocess.py`) drawn as a redshift fan that slowly
+precesses through declination slices. Offline or over `file://` both
+scenes fall back to synthetic generators and say so in their captions.
+Remaining upgrade ideas live in `docs/ROADMAP.md`.
 
 ## Development conventions
 

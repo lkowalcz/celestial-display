@@ -70,8 +70,12 @@ Current scenes:
    texture once at load (rebuilt on resize); naked-eye stars draw live
    with twinkle and BP−RP temperature colors. Falls back to the previous
    synthetic generator when the data fetch fails (offline, file://).
-3. `cosmicWeb` — synthetic large-scale structure: halo nodes, nearest-
-   neighbor filaments, 3D slow rotation. Upgrade path: SDSS or IllustrisTNG.
+3. `cosmicWeb` — SDSS DR18 redshift fan: 736k real spectroscopic
+   galaxies (data/sdss_galaxies.bin, built by scripts/sdss_preprocess.py),
+   RA → angle, comoving distance (flat ΛCDM, H0 = 70, Ωm = 0.3) → radius.
+   Precesses through 4°-wide declination slices (~36 s each, crossfaded);
+   each slice baked to an offscreen texture. Reference arcs at even
+   redshifts. Falls back to the synthetic web offline/file://.
 
 ## Config (URL query params)
 

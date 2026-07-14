@@ -688,7 +688,150 @@ const cosmicWeb = {
   detail: 'Synthetic cosmic web · nodes, filaments, voids',
   pts: null,
 
+  /* --- SDSS DR18 redshift fan (loaded async from data/sdss_galaxies.bin;
+         synthetic web below stays as the offline fallback) ---
+     Real spectroscopic galaxies plotted survey-style: RA → angle,
+     comoving distance → radius, one declination slice at a time,
+     slowly precessing through slices. */
+  sdss: null,
+  Z_MAX: 0.25,           // must match scripts/sdss_preprocess.py
+  RA_CENTER: 190,        // northern contiguous footprint points "up"
+  SLICE_HOLD: 36,        // seconds per declination slice
+  SLICE_FADE: 5,         // crossfade between slices
+  _texA: null, _texB: null,
+
+  /* comoving distance LUT, flat ΛCDM (H0 = 70, Ωm = 0.3), normalized
+     to D_C(Z_MAX); the raw stored quantity is the measured redshift */
+  buildDcLUT() {
+    const N = 256, SUB = 4, lut = new Float32Array(N + 1);
+    const dz = this.Z_MAX / (N * SUB);
+    let acc = 0;
+    for (let i = 1; i <= N; i++) {
+      for (let k = 0; k < SUB; k++) {
+        const z = ((i - 1) * SUB + k + 0.5) * dz;
+        acc += dz / Math.sqrt(0.3 * (1 + z) ** 3 + 0.7);
+      }
+      lut[i] = acc;
+    }
+    for (let i = 0; i <= N; i++) lut[i] /= lut[N];
+    return lut;
+  },
+
+  async loadSDSS() {
+    try {
+      const res = await fetch('data/sdss_galaxies.bin');
+      if (!res.ok) return;
+      const buf = await res.arrayBuffer();
+      const dv = new DataView(buf);
+      if (dv.getUint32(0, true) !== 0x53445353) return;   // "SDSS"
+      const n = dv.getUint32(4, true);
+      const u = new Uint16Array(buf, 8, n * 3);
+
+      const lut = this.buildDcLUT(), NL = 256;
+      const th = new Float32Array(n), r = new Float32Array(n);
+      const sliceOf = new Uint8Array(n).fill(255);
+      const counts = new Uint32Array(20);
+      for (let i = 0; i < n; i++) {
+        const ra = u[i * 3] / 65535 * 360;
+        const dec = u[i * 3 + 1] / 65535 * 180 - 90;
+        const zf = u[i * 3 + 2] / 65535;                  // z / Z_MAX
+        const dth = ((ra - this.RA_CENTER + 540) % 360) - 180;
+        th[i] = dth * Math.PI / 180;
+        const fi = zf * NL, i0 = Math.min(NL - 1, Math.floor(fi));
+        r[i] = lut[i0] + (lut[i0 + 1] - lut[i0]) * (fi - i0);
+        // 4°-wide declination bins centered at −2, 2, 6, … 74
+        const k = Math.floor((dec + 4) / 4);
+        if (k >= 0 && k < 20 && Math.abs(th[i]) < 1.75) {
+          sliceOf[i] = k; counts[k]++;
+        }
+      }
+      const order = [];
+      for (let k = 0; k < 20; k++) if (counts[k] > 6000) order.push(k);
+      if (!order.length) return;
+
+      this.sdss = { n, th, r, sliceOf, counts, order };
+      this._texA = this._texB = null;
+    } catch (e) { console.warn('sdss load failed, synthetic fallback:', e); }
+  },
+
+  onResize() { this._texA = this._texB = null; },
+
+  /* bake one declination slice — plot plus reference arcs — into a canvas */
+  bakeSlice(k) {
+    const s = this.sdss;
+    const c = document.createElement('canvas');
+    c.width = W; c.height = H;
+    const g2 = c.getContext('2d');
+    const cx = W / 2, cy = H * 0.88, Rmax = Math.min(H * 0.80, W * 0.52);
+
+    // reference arcs at even redshifts (same grammar as the orrery's AU rings)
+    if (CONFIG.labels) {
+      const lut = this._lut || (this._lut = this.buildDcLUT());
+      g2.save();
+      g2.setLineDash([1, 5]);
+      g2.lineWidth = 1;
+      g2.strokeStyle = 'rgba(86,94,104,0.30)';
+      g2.fillStyle = 'rgba(86,94,104,0.65)';
+      g2.font = "8.5px 'IBM Plex Mono', monospace";
+      for (const z of [0.05, 0.10, 0.15, 0.20, 0.25]) {
+        const fi = z / this.Z_MAX * 256, i0 = Math.min(255, Math.floor(fi));
+        const R = (lut[i0] + (lut[i0 + 1] - lut[i0]) * (fi - i0)) * Rmax;
+        g2.beginPath();
+        g2.arc(cx, cy, R, -Math.PI / 2 - 1.48, -Math.PI / 2 + 1.48);
+        g2.stroke();
+        g2.fillText(`z = ${z.toFixed(2)}`, cx + 5, cy - R - 4);
+      }
+      g2.restore();
+    }
+
+    g2.fillStyle = '#AFC9DE';
+    g2.globalAlpha = 0.5;
+    for (let i = 0; i < s.n; i++) {
+      if (s.sliceOf[i] !== k) continue;
+      const R = s.r[i] * Rmax, a = s.th[i];
+      g2.fillRect(cx + R * Math.sin(a) - 0.5, cy - R * Math.cos(a) - 0.5, 1, 1);
+    }
+    g2.globalAlpha = 1;
+    return { k, canvas: c };
+  },
+
+  sliceAt(idx) { return this.sdss.order[((idx % this.sdss.order.length) + this.sdss.order.length) % this.sdss.order.length]; },
+
+  drawFan(t) {
+    const s = this.sdss;
+    const idx = Math.floor(t / this.SLICE_HOLD);
+    const kCur = this.sliceAt(idx);
+    if (!this._texA || this._texA.k !== kCur || this._texA.canvas.width !== W || this._texA.canvas.height !== H) {
+      this._texA = this._texB && this._texB.k === kCur
+        && this._texB.canvas.width === W && this._texB.canvas.height === H
+        ? this._texB : this.bakeSlice(kCur);
+      this._texB = null;
+      const dec = kCur * 4 - 2;
+      this.detail = `SDSS DR18 · ${Math.round(s.counts[kCur] / 1000)}k galaxies · δ ${dec >= 0 ? '+' : '−'}${Math.abs(dec)}° ± 2° · z < ${this.Z_MAX}`;
+      if (scenes[current] === this) setCaption(current);
+    }
+
+    const phase = t - idx * this.SLICE_HOLD;
+    const fadeF = Math.max(0, (phase - (this.SLICE_HOLD - this.SLICE_FADE)) / this.SLICE_FADE);
+    if (fadeF > 0 && !this._texB) this._texB = this.bakeSlice(this.sliceAt(idx + 1));
+
+    const cx = W / 2, cy = H * 0.88;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(0.05 * Math.sin(t * 0.013 * MOTION));   // slow instrument sway
+    ctx.translate(-cx, -cy);
+    ctx.globalAlpha = 1 - smooth(fadeF);
+    ctx.drawImage(this._texA.canvas, 0, 0);
+    if (fadeF > 0) {
+      ctx.globalAlpha = smooth(fadeF);
+      ctx.drawImage(this._texB.canvas, 0, 0);
+    }
+    ctx.restore();
+    ctx.globalAlpha = 1;
+  },
+
   init() {
+    this.loadSDSS();   // async; falls back to synthetic web below
     // halo nodes
     const nodes = [];
     for (let i = 0; i < Math.round(110 * Math.sqrt(D)); i++) {
@@ -731,6 +874,11 @@ const cosmicWeb = {
   },
 
   draw(t) {
+    if (this.sdss) { this.drawFan(t); return; }
+    this.drawSynthetic(t);
+  },
+
+  drawSynthetic(t) {
     const cx = W / 2, cy = H / 2;
     const scale = Math.min(W, H) * 0.44;
     const yaw = t * 0.055 * MOTION, pitch = 0.42 + 0.07 * Math.sin(t * 0.021 * MOTION);

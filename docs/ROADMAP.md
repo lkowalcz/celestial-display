@@ -34,9 +34,12 @@ motions. Original plan:
   caches images. Must degrade gracefully offline (skip scene or show the
   last cached frame with an honest "stale" timestamp).
 
-## 3. Real large-scale structure
+## 3. Real large-scale structure — SDSS DONE 2026-07
 
-Two candidate replacements for the synthetic cosmic web:
+Shipped: SDSS DR18 main galaxy sample (736k galaxies, z < 0.25) as a
+precessing declination-slice redshift fan in data/sdss_galaxies.bin,
+built by scripts/sdss_preprocess.py. IllustrisTNG remains a candidate
+for a separate theory-side scene. Original notes:
 
 - SDSS spectroscopic galaxy sample: the classic redshift "fan" — real
   observed galaxies, plotted in comoving coordinates. 2D slice, striking,
