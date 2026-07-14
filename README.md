@@ -1,8 +1,10 @@
 # Celestial Display
 
 Ambient astronomical art for a framed OLED display. Three rotating scenes —
-a log-radial Keplerian orrery, an all-sky star field, and a synthetic cosmic
-web — rendered fullscreen on pure black, crossfading through darkness.
+a log-radial orrery clocked to the real JPL ephemeris, a real-time horizon
+view of the Gaia DR3 sky with the Sun, Moon, and planets where they stand
+right now, and the SDSS DR18 galaxy redshift fan — rendered fullscreen on
+pure black, crossfading through darkness.
 
 The display architecture is deliberately dumb: any device with a browser
 opens one URL in kiosk mode. Development happens here; displays update on
@@ -54,9 +56,12 @@ build.
 
 ## Data upgrades
 
-The star field renders real Gaia DR3 astrometry: ~482k stars to G < 10
-(`data/gaia_stars.bin`, built by `scripts/gaia_preprocess.py`), with the
-brightest ~20 stars — which saturate Gaia — patched in from Hipparcos.
+The Local Sky scene renders real Gaia DR3 astrometry: ~482k stars to
+G < 10 (`data/gaia_stars.bin`, built by `scripts/gaia_preprocess.py`),
+with the brightest ~20 stars — which saturate Gaia — patched in from
+Hipparcos. Its Sun, Moon (true phase), and planets come from the same
+JPL elements as the orrery plus a low-precision lunar theory, verified
+against JPL Horizons.
 The large-scale structure scene renders the SDSS DR18 main galaxy
 sample: 736k spectroscopic redshifts (`data/sdss_galaxies.bin`, built by
 `scripts/sdss_preprocess.py`) drawn as a redshift fan that slowly

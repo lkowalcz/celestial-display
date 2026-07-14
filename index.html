@@ -158,8 +158,9 @@ const CONFIG = {
   density: num('density', autoDensity),     // particle-count multiplier
   labels:  params.get('labels') !== 'off',  // planet names + AU rings
   scene:   params.has('scene') ? Math.floor(num('scene', 0)) : null, // lock to one scene
-  lat:     num('lat', 51.4779),             // observer latitude (deg, N+) — default Greenwich
-  lon:     num('lon', 0),                   // observer longitude (deg, E+)
+  lat:      num('lat', 51.4779),            // observer latitude (deg, N+) — default Greenwich
+  lon:      num('lon', 0),                  // observer longitude (deg, E+)
+  callouts: Math.floor(num('callouts', 4)), // Local Sky: label the N closest bodies in frame
 };
 
 const SCENE_HOLD = CONFIG.hold;
@@ -212,15 +213,15 @@ const orrery = {
   // dropped): inclinations ≤ 7° except Pluto's 17°.
   // https://ssd.jpl.nasa.gov/planets/approx_pos.html
   planets: [
-    { a: [ 0.38709927,  0.00000037], e: [0.20563593,  0.00001906], L: [ 252.25032350, 149472.67411175], w: [  77.45779628,  0.16047689], c: '#B8B2A8', s: 1.7, name: 'MERCURY' },
-    { a: [ 0.72333566,  0.00000390], e: [0.00677672, -0.00004107], L: [ 181.97909950,  58517.81538729], w: [ 131.60246718,  0.00268329], c: '#E6D3A8', s: 2.4, name: 'VENUS'   },
-    { a: [ 1.00000261,  0.00000562], e: [0.01671123, -0.00004392], L: [ 100.46457166,  35999.37244981], w: [ 102.93768193,  0.32327364], c: '#7FB4D9', s: 2.5, name: 'EARTH'   },
-    { a: [ 1.52371034,  0.00001847], e: [0.09339410,  0.00007882], L: [  -4.55343205,  19140.30268499], w: [ -23.94362959,  0.44441088], c: '#D08159', s: 2.0, name: 'MARS'    },
-    { a: [ 5.20288700, -0.00011607], e: [0.04838624, -0.00013253], L: [  34.39644051,   3034.74612775], w: [  14.72847983,  0.21252668], c: '#D9B48A', s: 4.4, name: 'JUPITER' },
-    { a: [ 9.53667594, -0.00125060], e: [0.05386179, -0.00050991], L: [  49.95424423,   1222.49362201], w: [  92.59887831, -0.41897216], c: '#E3CFA0', s: 3.8, name: 'SATURN'  },
-    { a: [19.18916464, -0.00196176], e: [0.04725744, -0.00004397], L: [ 313.23810451,    428.48202785], w: [ 170.95427630,  0.40805281], c: '#9FD4D9', s: 3.0, name: 'URANUS'  },
-    { a: [30.06992276,  0.00026291], e: [0.00859048,  0.00005105], L: [ -55.12002969,    218.45945325], w: [  44.96476227, -0.32241464], c: '#6E93D6', s: 3.0, name: 'NEPTUNE' },
-    { a: [39.48686035,  0.00449751], e: [0.24885238,  0.00006016], L: [ 238.96535011,    145.18042903], w: [ 224.09702598, -0.00968827], b: -0.01262724, c: '#8E8880', s: 1.5, name: 'PLUTO', dashed: true },
+    { a: [ 0.38709927,  0.00000037], e: [0.20563593,  0.00001906], L: [ 252.25032350, 149472.67411175], w: [  77.45779628,  0.16047689], i: [7.00497902, -0.00594749], node: [ 48.33076593, -0.12534081], m0: -0.6, c: '#B8B2A8', s: 1.7, name: 'MERCURY' },
+    { a: [ 0.72333566,  0.00000390], e: [0.00677672, -0.00004107], L: [ 181.97909950,  58517.81538729], w: [ 131.60246718,  0.00268329], i: [3.39467605, -0.00078890], node: [ 76.67984255, -0.27769418], m0: -4.5, c: '#E6D3A8', s: 2.4, name: 'VENUS'   },
+    { a: [ 1.00000261,  0.00000562], e: [0.01671123, -0.00004392], L: [ 100.46457166,  35999.37244981], w: [ 102.93768193,  0.32327364], i: [-0.00001531, -0.01294668], node: [ 0.0, 0.0 ], m0: 0, c: '#7FB4D9', s: 2.5, name: 'EARTH'   },
+    { a: [ 1.52371034,  0.00001847], e: [0.09339410,  0.00007882], L: [  -4.55343205,  19140.30268499], w: [ -23.94362959,  0.44441088], i: [1.84969142, -0.00813131], node: [ 49.55953891, -0.29257343], m0: -1.5, c: '#D08159', s: 2.0, name: 'MARS'    },
+    { a: [ 5.20288700, -0.00011607], e: [0.04838624, -0.00013253], L: [  34.39644051,   3034.74612775], w: [  14.72847983,  0.21252668], i: [1.30439695, -0.00183714], node: [100.47390909,  0.20469106], m0: -9.4, c: '#D9B48A', s: 4.4, name: 'JUPITER' },
+    { a: [ 9.53667594, -0.00125060], e: [0.05386179, -0.00050991], L: [  49.95424423,   1222.49362201], w: [  92.59887831, -0.41897216], i: [2.48599187,  0.00193609], node: [113.66242448, -0.28867794], m0: -8.9, c: '#E3CFA0', s: 3.8, name: 'SATURN'  },
+    { a: [19.18916464, -0.00196176], e: [0.04725744, -0.00004397], L: [ 313.23810451,    428.48202785], w: [ 170.95427630,  0.40805281], i: [0.77263783, -0.00242939], node: [ 74.01692503,  0.04240589], m0: -7.2, c: '#9FD4D9', s: 3.0, name: 'URANUS'  },
+    { a: [30.06992276,  0.00026291], e: [0.00859048,  0.00005105], L: [ -55.12002969,    218.45945325], w: [  44.96476227, -0.32241464], i: [1.77004347,  0.00035372], node: [131.78422574, -0.00508664], m0: -7.0, c: '#6E93D6', s: 3.0, name: 'NEPTUNE' },
+    { a: [39.48686035,  0.00449751], e: [0.24885238,  0.00006016], L: [ 238.96535011,    145.18042903], w: [ 224.09702598, -0.00968827], i: [17.14104260, 0.00000501], node: [110.30167986, -0.00809981], b: -0.01262724, m0: -0.4, c: '#8E8880', s: 1.5, name: 'PLUTO', dashed: true },
   ],
 
   EARTH_PERIOD_S: 365.25,   // 1 s of display time = 1 day (Earth orbits in ~6 min)
@@ -247,6 +248,25 @@ const orrery = {
     let M = (L - w + (pl.b ? pl.b * T * T : 0)) * Math.PI / 180;
     M = ((M % TAU) + TAU) % TAU;
     return { a, e, M, wRad: w * Math.PI / 180 };
+  },
+
+  /* full 3D heliocentric ecliptic-J2000 position (AU) — used by Local Sky */
+  helioEcl(pl, T) {
+    const { a, e, M, wRad } = this.elements(pl, T);
+    const iR = (pl.i[0] + pl.i[1] * T) * Math.PI / 180;
+    const oR = (pl.node[0] + pl.node[1] * T) * Math.PI / 180;
+    const wA = wRad - oR;                       // argument of perihelion
+    const E = keplerE(M, e);
+    const xp = a * (Math.cos(E) - e);
+    const yp = a * Math.sqrt(1 - e * e) * Math.sin(E);
+    const cw = Math.cos(wA), sw = Math.sin(wA);
+    const co = Math.cos(oR), so = Math.sin(oR);
+    const ci = Math.cos(iR), si = Math.sin(iR);
+    return {
+      x: (cw * co - sw * so * ci) * xp + (-sw * co - cw * so * ci) * yp,
+      y: (cw * so + sw * co * ci) * xp + (-sw * so + cw * co * ci) * yp,
+      z: sw * si * xp + cw * si * yp,
+    };
   },
 
   init() {
@@ -418,19 +438,14 @@ const orrery = {
 };
 
 /* ============================================================
-   SCENE 2 — Stellar sphere (all-sky, galactic band)
+   Gaia DR3 star catalog (shared by the Local Sky scene)
+   Loads data/gaia_stars.bin async; synthesizes a comparable
+   field when the fetch fails (offline, file://) so dependent
+   scenes always have a sky — captioned honestly either way.
    ============================================================ */
-const starfield = {
-  title: 'Stellar Sphere',
-  detail: 'All-sky projection · synthetic field · swap in Gaia DR3',
-  stars: null, nebulae: null,
-
-  // --- Gaia DR3 (loaded async from data/gaia_stars.bin; synthetic above
-  //     stays as the offline/file:// fallback) ---
-  gaia: null,            // { bright: [...], faint: {ra,dec,alpha,bucket,order}, sprites }
-  fieldTex: null, texW: 0, texH: 0,
-  BRIGHT_CUT: 6.0,       // G < 6 drawn live w/ twinkle; fainter baked into texture
-  DRIFT: 0.011,          // rad/s of sky rotation (× MOTION)
+const gaiaCatalog = {
+  data: null,   // { source, bright: [{ra,dec,m,bk}], nf, fRa, fDec, fAlpha, fBucket, sprites }
+  BRIGHT_CUT: 6.0,       // stars brighter than this get live sprite treatment
 
   /* BP−RP color index → approximate blackbody star color, slightly
      desaturated toward the display's star white. */
@@ -451,13 +466,35 @@ const starfield = {
     return rgb0.map((v, k) => Math.round(v + (rgb1[k] - v) * f));
   },
 
-  async loadGaia() {
+  makeSprites(bucketRGB) {
+    return bucketRGB.map(rgb => {
+      const c = document.createElement('canvas');
+      c.width = c.height = 64;
+      const g2 = c.getContext('2d');
+      const grad = g2.createRadialGradient(32, 32, 0, 32, 32, 32);
+      grad.addColorStop(0, '#FFFFFF');
+      grad.addColorStop(0.10, `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0.9)`);
+      grad.addColorStop(0.32, `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0.22)`);
+      grad.addColorStop(1, `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0)`);
+      g2.fillStyle = grad;
+      g2.fillRect(0, 0, 64, 64);
+      return c;
+    });
+  },
+
+  bucketRGBs() {
+    const NB = 24, out = [];
+    for (let b = 0; b < NB; b++) out.push(this.bprpColor(-0.6 + (b + 0.5) * 4.6 / NB));
+    return out;
+  },
+
+  async load() {
     try {
       const res = await fetch('data/gaia_stars.bin');
-      if (!res.ok) return;
+      if (!res.ok) { this.synthesize(); return; }
       const buf = await res.arrayBuffer();
       const dv = new DataView(buf);
-      if (dv.getUint32(0, true) !== 0x47414941) return;   // "GAIA"
+      if (dv.getUint32(0, true) !== 0x47414941) { this.synthesize(); return; }   // "GAIA"
       const n = dv.getUint32(4, true);
       const u = new Uint16Array(buf, 8, n * 4);
 
@@ -469,10 +506,7 @@ const starfield = {
       ];
 
       const NB = 24;                       // quantized color buckets
-      const bucketRGB = [];
-      for (let b = 0; b < NB; b++) {
-        bucketRGB.push(this.bprpColor(-0.6 + (b + 0.5) * 4.6 / NB));
-      }
+      const bucketRGB = this.bucketRGBs();
 
       const bright = [];
       const fRa = new Float32Array(n), fDec = new Float32Array(n);
@@ -500,83 +534,20 @@ const starfield = {
       }
       bright.sort((a, b) => a.m - b.m);
 
-      // paint order grouped by color bucket (one fillStyle per bucket)
-      const order = new Uint32Array(nf);
-      for (let i = 0; i < nf; i++) order[i] = i;
-      order.sort((a, b) => fBucket[a] - fBucket[b]);
-
-      // pre-rendered glow sprites per bucket (no per-frame gradients)
-      const sprites = bucketRGB.map(rgb => {
-        const c = document.createElement('canvas');
-        c.width = c.height = 64;
-        const g2 = c.getContext('2d');
-        const grad = g2.createRadialGradient(32, 32, 0, 32, 32, 32);
-        grad.addColorStop(0, '#FFFFFF');
-        grad.addColorStop(0.10, `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0.9)`);
-        grad.addColorStop(0.32, `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0.22)`);
-        grad.addColorStop(1, `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0)`);
-        g2.fillStyle = grad;
-        g2.fillRect(0, 0, 64, 64);
-        return c;
-      });
-
-      this.gaia = { bright, nf, fRa, fDec, fAlpha, fBucket, order, bucketRGB, sprites };
-      this.buildFieldTexture();
-      this.detail = `Gaia DR3 · ${Math.round(n / 1000)}k stars · G < 10`;
-      if (scenes[current] === this) setCaption(current);
-    } catch (e) { console.warn('gaia load failed, synthetic fallback:', e); }
-  },
-
-  /* bake the faint field into an equirectangular texture at current W×H */
-  buildFieldTexture() {
-    const g = this.gaia;
-    if (!g || !W || !H) return;
-    const tex = this.fieldTex && this.texW === W && this.texH === H
-      ? this.fieldTex : document.createElement('canvas');
-    tex.width = W; tex.height = H;
-    this.fieldTex = tex; this.texW = W; this.texH = H;
-    const tc = tex.getContext('2d');
-    tc.clearRect(0, 0, W, H);
-    tc.globalCompositeOperation = 'lighter';   // real intensities accumulate
-    let curBucket = -1;
-    for (let k = 0; k < g.nf; k++) {
-      const i = g.order[k];
-      if (g.fBucket[i] !== curBucket) {
-        curBucket = g.fBucket[i];
-        const rgb = g.bucketRGB[curBucket];
-        tc.fillStyle = `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
-      }
-      const x = ((g.fRa[i] / TAU) % 1 + 1) % 1 * W;
-      const y = (0.5 - g.fDec[i] / Math.PI) * H;
-      tc.globalAlpha = g.fAlpha[i];
-      tc.fillRect(x, y, 1, 1);
+      this.data = {
+        source: 'Gaia DR3', bright, nf, fRa, fDec, fAlpha, fBucket,
+        sprites: this.makeSprites(bucketRGB),
+      };
+    } catch (e) {
+      console.warn('gaia load failed, synthesizing fallback field:', e);
+      this.synthesize();
     }
-    // bright stars beyond the live-draw budget are baked in as well,
-    // so no star is silently dropped at low density
-    g.liveCap = Math.min(g.bright.length, Math.round(7000 * D));
-    for (let i = g.liveCap; i < g.bright.length; i++) {
-      const s = g.bright[i];
-      const rgb = g.bucketRGB[s.bk];
-      tc.fillStyle = `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
-      const x = ((s.ra / TAU) % 1 + 1) % 1 * W;
-      const y = (0.5 - s.dec / Math.PI) * H;
-      tc.globalAlpha = 0.55;
-      tc.fillRect(x - 1, y - 1, 2, 2);
-    }
-    tc.globalAlpha = 1;
-    tc.globalCompositeOperation = 'source-over';
   },
 
-  onResize() {
-    clearTimeout(this._rsTimer);
-    this._rsTimer = setTimeout(() => this.buildFieldTexture(), 300);
-  },
-
-  init() {
-    this.loadGaia();   // async; falls back to synthetic below if unavailable
-    const TILT = 1.05; // galactic-plane tilt vs. projection equator (rad)
+  /* offline fallback: statistically plausible field, same data shape */
+  synthesize() {
+    const TILT = 1.05;   // stand-in galactic-plane tilt
     const toEq = (l, b) => {
-      // point on sphere in "galactic" frame → rotate about x by TILT
       const x = Math.cos(b) * Math.cos(l);
       const y = Math.cos(b) * Math.sin(l);
       const z = Math.sin(b);
@@ -584,111 +555,41 @@ const starfield = {
       const z2 = y * Math.sin(TILT) + z * Math.cos(TILT);
       return { ra: Math.atan2(y2, x), dec: Math.asin(Math.max(-1, Math.min(1, z2))) };
     };
-    // star color by rough temperature class
-    const colors = ['#AFC6E8', '#CBD8EC', '#E8ECF2', '#F2E8D5', '#EDD5A8', '#E0B080'];
-    const pick = () => colors[Math.min(colors.length - 1, Math.floor(Math.pow(Math.random(), 0.7) * colors.length))];
-
-    const stars = [];
-    // uniform sky population
-    for (let i = 0; i < Math.round(2600 * D); i++) {
+    const NB = 24;
+    const pickBk = () => Math.min(NB - 1, Math.floor(Math.pow(Math.random(), 0.7) * NB));
+    const bright = [];
+    const NF = Math.round(24000 * D);
+    const fRa = new Float32Array(NF), fDec = new Float32Array(NF);
+    const fAlpha = new Float32Array(NF), fBucket = new Uint8Array(NF);
+    for (let i = 0; i < 900; i++) {
       const l = rand(0, TAU), b = Math.asin(rand(-1, 1));
       const { ra, dec } = toEq(l, b);
-      stars.push({ ra, dec, m: Math.pow(Math.random(), 2.6), c: pick(), tw: rand(0, TAU), tws: rand(0.3, 1.4) });
+      bright.push({ ra, dec, m: 6 - Math.pow(Math.random(), 2.2) * 6, bk: pickBk() });
     }
-    // galactic band concentration
-    for (let i = 0; i < Math.round(3400 * D); i++) {
-      const l = rand(0, TAU), b = gauss() * 0.13;
+    bright.sort((a, b) => a.m - b.m);
+    for (let i = 0; i < NF; i++) {
+      const band = Math.random() < 0.6;
+      const l = rand(0, TAU), b = band ? gauss() * 0.13 : Math.asin(rand(-1, 1));
       const { ra, dec } = toEq(l, b);
-      stars.push({ ra, dec, m: Math.pow(Math.random(), 2.2) * 0.8, c: pick(), tw: rand(0, TAU), tws: rand(0.3, 1.4) });
+      fRa[i] = ra; fDec[i] = dec; fBucket[i] = pickBk();
+      fAlpha[i] = 0.08 + Math.pow(Math.random(), 2.5) * 0.7;
     }
-    this.stars = stars;
-
-    // faint nebulosity blobs along the band
-    const neb = [];
-    for (let i = 0; i < 130; i++) {
-      const l = rand(0, TAU), b = gauss() * 0.09;
-      const { ra, dec } = toEq(l, b);
-      neb.push({ ra, dec, r: rand(30, 95), a: rand(0.015, 0.05) });
-    }
-    this.nebulae = neb;
-  },
-
-  project(ra, dec, t) {
-    const drift = this.DRIFT * MOTION;
-    let x = (((ra + t * drift) / TAU) % 1 + 1) % 1;
-    const y = (0.5 - dec / Math.PI);
-    return { x: x * W, y: y * H };
-  },
-
-  draw(t) {
-    if (this.gaia) { this.drawGaia(t); return; }
-    this.drawSynthetic(t);
-  },
-
-  drawGaia(t) {
-    const g = this.gaia;
-    if (!this.fieldTex || this.texW !== W || this.texH !== H) this.buildFieldTexture();
-
-    // faint field: one baked texture, blitted twice for horizontal wrap
-    const dx = ((t * this.DRIFT * MOTION / TAU) % 1 + 1) % 1 * W;
-    ctx.drawImage(this.fieldTex, dx - W, 0);
-    ctx.drawImage(this.fieldTex, dx, 0);
-
-    // bright stars, live w/ twinkle, brightest first (density-capped;
-    // the remainder is baked into the field texture)
-    const count = g.liveCap;
-    for (let i = 0; i < count; i++) {
-      const s = g.bright[i];
-      const p = this.project(s.ra, s.dec, t);
-      const twinkle = reduceMotion ? 1 : 0.86 + 0.14 * Math.sin(t * s.tws + s.tw);
-      const size = 0.8 + (this.BRIGHT_CUT - s.m) * 0.45;    // Sirius ≈ 4.2
-      const glowR = size * 4;
-      ctx.globalAlpha = Math.min(1, 0.30 + (this.BRIGHT_CUT - s.m) * 0.13) * twinkle;
-      const spr = g.sprites[s.bk];
-      ctx.drawImage(spr, p.x - glowR, p.y - glowR, glowR * 2, glowR * 2);
-      if (p.x < glowR) ctx.drawImage(spr, p.x + W - glowR, p.y - glowR, glowR * 2, glowR * 2);
-      else if (p.x > W - glowR) ctx.drawImage(spr, p.x - W - glowR, p.y - glowR, glowR * 2, glowR * 2);
-    }
-    ctx.globalAlpha = 1;
-  },
-
-  drawSynthetic(t) {
-    // nebulosity first
-    for (const n of this.nebulae) {
-      const p = this.project(n.ra, n.dec, t);
-      const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, n.r);
-      g.addColorStop(0, `rgba(127,160,200,${n.a})`);
-      g.addColorStop(1, 'rgba(127,160,200,0)');
-      ctx.fillStyle = g;
-      ctx.beginPath(); ctx.arc(p.x, p.y, n.r, 0, TAU); ctx.fill();
-      // handle horizontal wrap for wide blobs
-      if (p.x < n.r) { ctx.beginPath(); ctx.arc(p.x + W, p.y, n.r, 0, TAU); ctx.fill(); }
-      if (p.x > W - n.r) { ctx.beginPath(); ctx.arc(p.x - W, p.y, n.r, 0, TAU); ctx.fill(); }
-    }
-    // stars
-    for (const s of this.stars) {
-      const p = this.project(s.ra, s.dec, t);
-      const twinkle = reduceMotion ? 1 : 0.82 + 0.18 * Math.sin(t * s.tws + s.tw);
-      const size = 0.4 + s.m * 1.9;
-      ctx.globalAlpha = (0.25 + s.m * 0.75) * twinkle;
-      ctx.fillStyle = s.c;
-      if (size > 1.4) {
-        ctx.beginPath(); ctx.arc(p.x, p.y, size * 0.62, 0, TAU); ctx.fill();
-      } else {
-        ctx.fillRect(p.x, p.y, size, size);
-      }
-    }
-    ctx.globalAlpha = 1;
+    this.data = {
+      source: 'synthetic', bright, nf: NF, fRa, fDec, fAlpha, fBucket,
+      sprites: this.makeSprites(this.bucketRGBs()),
+    };
   },
 };
+gaiaCatalog.load();
 
 /* ============================================================
-   SCENE 3 — Local Sky (real-time horizon view)
+   SCENE 2 — Local Sky (real-time horizon view)
    The window, not the map: a perspective camera standing at
    CONFIG.lat/lon, showing the stars as they stand over that spot
    RIGHT NOW (true sidereal time from the wall clock), slowly
    panning around the horizon. Pause freezes the pan; the sky
-   itself always runs on real time. Shares starfield's Gaia data.
+   itself always runs on real time. Stars from gaiaCatalog; Sun,
+   Moon, and planets from the orrery's ephemeris + lunar theory.
    ============================================================ */
 const localSky = {
   title: 'Local Sky',
@@ -699,36 +600,22 @@ const localSky = {
 
   /* one-time: ICRS unit vectors + coarse sky bins for FOV culling */
   build() {
-    const g = starfield.gaia;
-    let n, ra, dec, alpha, mag, bk;
-    if (g) {
-      const nb = g.bright.length;
-      n = nb + g.nf;
-      ra = new Float32Array(n); dec = new Float32Array(n);
-      alpha = new Float32Array(n); mag = new Float32Array(n);
-      bk = new Uint8Array(n);
-      g.bright.forEach((s, i) => {
-        ra[i] = s.ra; dec[i] = s.dec; mag[i] = s.m; bk[i] = s.bk;
-        alpha[i] = Math.min(1, 0.30 + (starfield.BRIGHT_CUT - s.m) * 0.13);
-      });
-      for (let i = 0; i < g.nf; i++) {
-        ra[nb + i] = g.fRa[i]; dec[nb + i] = g.fDec[i];
-        mag[nb + i] = 8; alpha[nb + i] = g.fAlpha[i] * 0.8;
-      }
-      this.builtFrom = 'gaia';
-    } else if (starfield.stars) {
-      // synthetic fallback (offline): same pipeline, honest caption
-      const st = starfield.stars;
-      n = st.length;
-      ra = new Float32Array(n); dec = new Float32Array(n);
-      alpha = new Float32Array(n); mag = new Float32Array(n);
-      bk = null;
-      st.forEach((s, i) => {
-        ra[i] = s.ra; dec[i] = s.dec;
-        mag[i] = 7 - s.m * 5; alpha[i] = 0.25 + s.m * 0.6;
-      });
-      this.builtFrom = 'synthetic';
-    } else return;
+    const g = gaiaCatalog.data;
+    if (!g) return;
+    const nb = g.bright.length;
+    const n = nb + g.nf;
+    const ra = new Float32Array(n), dec = new Float32Array(n);
+    const alpha = new Float32Array(n), mag = new Float32Array(n);
+    const bk = new Uint8Array(n);
+    g.bright.forEach((s, i) => {
+      ra[i] = s.ra; dec[i] = s.dec; mag[i] = s.m; bk[i] = s.bk;
+      alpha[i] = Math.min(1, 0.30 + (gaiaCatalog.BRIGHT_CUT - s.m) * 0.13);
+    });
+    for (let i = 0; i < g.nf; i++) {
+      ra[nb + i] = g.fRa[i]; dec[nb + i] = g.fDec[i];
+      mag[nb + i] = 8; alpha[nb + i] = g.fAlpha[i] * 0.8;
+    }
+    this.builtFrom = g.source;
 
     const vx = new Float32Array(n), vy = new Float32Array(n), vz = new Float32Array(n);
     for (let i = 0; i < n; i++) {
@@ -763,8 +650,62 @@ const localSky = {
   init() {},
   onResize() {},
 
+  /* Sun, Moon, and naked-eye planets as geocentric ICRS unit vectors.
+     Planets: orrery's JPL elements minus Earth's position. Moon: the
+     Astronomical Almanac low-precision series (~0.3°), topocentric via
+     the observer's up vector. Pluto omitted: at mag ~14 it is fainter
+     than the G<10 catalog floor and would be dishonest as a dot. */
+  solarBodies(T, Ux, Uy, Uz) {
+    const DEG = Math.PI / 180;
+    const ce = Math.cos(23.43928 * DEG), se = Math.sin(23.43928 * DEG);
+    const eq = (x, y, z) => [x, y * ce - z * se, y * se + z * ce];
+    const earth = orrery.helioEcl(orrery.planets[2], T);
+    const out = [];
+    const push = (name, v, dist, extra) => out.push(Object.assign({
+      name, ux: v[0] / dist, uy: v[1] / dist, uz: v[2] / dist, dist,
+    }, extra));
+
+    { // Sun (geocentric = −Earth heliocentric)
+      const v = eq(-earth.x, -earth.y, -earth.z);
+      push('SUN', v, Math.hypot(v[0], v[1], v[2]), { kind: 'sun' });
+    }
+    for (const [idx, pl] of orrery.planets.entries()) {
+      if (idx === 2 || idx === 8) continue;        // Earth, Pluto
+      const h = orrery.helioEcl(pl, T);
+      const v = eq(h.x - earth.x, h.y - earth.y, h.z - earth.z);
+      const dg = Math.hypot(v[0], v[1], v[2]);
+      const dh = Math.hypot(h.x, h.y, h.z);
+      push(pl.name, v, dg, { kind: 'planet', color: pl.c,
+        mag: pl.m0 + 5 * Math.log10(dh * dg) });
+    }
+    { // Moon
+      const S = (a, b) => Math.sin((a + b * T) * DEG);
+      const C = (a, b) => Math.cos((a + b * T) * DEG);
+      const lam = (218.32 + 481267.883 * T
+        + 6.29 * S(134.9, 477198.85) - 1.27 * S(259.2, -413335.38)
+        + 0.66 * S(235.7, 890534.23) + 0.21 * S(269.9, 954397.70)
+        - 0.19 * S(357.5, 35999.05) - 0.11 * S(186.6, 966404.05)) * DEG;
+      const bet = (5.13 * S(93.3, 483202.03) + 0.28 * S(228.2, 960400.87)
+        - 0.28 * S(318.3, 6003.18) - 0.17 * S(217.6, -407332.20)) * DEG;
+      const par = (0.9508
+        + 0.0518 * C(134.9, 477198.85) + 0.0095 * C(259.2, -413335.38)
+        + 0.0078 * C(235.7, 890534.23) + 0.0028 * C(269.9, 954397.70)) * DEG;
+      const distKm = 6378.14 / Math.sin(par);
+      const cb = Math.cos(bet);
+      const v = eq(cb * Math.cos(lam), cb * Math.sin(lam), Math.sin(bet));
+      // topocentric: subtract the observer's geocentric position
+      const vx = v[0] * distKm - 6378.14 * Ux;
+      const vy = v[1] * distKm - 6378.14 * Uy;
+      const vz = v[2] * distKm - 6378.14 * Uz;
+      const dKm = Math.hypot(vx, vy, vz);
+      push('MOON', [vx, vy, vz], dKm, { kind: 'moon', distKm: dKm });
+      out[out.length - 1].dist = dKm / 149597870.7;      // AU, for ranking
+    }
+    return out;
+  },
+
   draw(t) {
-    if (!this.built || (this.builtFrom === 'synthetic' && starfield.gaia)) this.build();
+    if (!this.built || this.builtFrom !== gaiaCatalog.data?.source) this.build();
     if (!this.built) return;
     const B = this.built;
 
@@ -794,7 +735,7 @@ const localSky = {
     const cosCull = Math.cos(halfDiag + 0.24);   // FOV half-diagonal + bin radius
     const minvz = Math.cos(halfDiag + 0.06);
     const cx = W / 2, cy = H / 2;
-    const sprites = starfield.gaia ? starfield.gaia.sprites : null;
+    const sprites = gaiaCatalog.data.sprites;
     const magLim = D >= 1 ? 99 : 8.2 + 1.8 * D;   // density trims only the faintest
 
     // faint stars colorless by design: scotopic vision sees no color there
@@ -813,7 +754,7 @@ const localSky = {
         const py = cy - (x * Cx + y * Cy + z * Cz) / vz2 * f;
         if (px < -8 || px > W + 8 || py < -8 || py > H + 8) continue;
         const ext = sinAlt > 0.17 ? 1 : sinAlt / 0.17;  // atmospheric extinction < ~10° alt
-        if (B.mag[i] < 6 && sprites && B.bk) {
+        if (B.mag[i] < 6) {
           const twinkle = reduceMotion ? 1 : 0.85 + 0.15 * Math.sin(t * 1.1 + i);
           const s = (0.9 + (6 - B.mag[i]) * 0.5) * 4;
           ctx.globalAlpha = B.alpha[i] * ext * twinkle;
@@ -826,13 +767,93 @@ const localSky = {
     }
     ctx.globalAlpha = 1;
 
+    /* --- solar system: Sun, Moon, planets from the same ephemeris clock.
+           Planets don't twinkle (they really don't). --- */
+    const bodies = this.solarBodies(d / 36525, Ux, Uy, Uz);
+    const inview = [];
+    for (const b of bodies) {
+      const vz2 = b.ux * Fx + b.uy * Fy + b.uz * Fz;
+      if (vz2 < minvz) continue;
+      const sinAlt = b.ux * Ux + b.uy * Uy + b.uz * Uz;
+      if (sinAlt < 0) continue;
+      const px = cx + (b.ux * Rx + b.uy * Ry + b.uz * Rz) / vz2 * f;
+      const py = cy - (b.ux * Cx + b.uy * Cy + b.uz * Cz) / vz2 * f;
+      if (px < -30 || px > W + 30 || py < -30 || py > H + 30) continue;
+      const ext = sinAlt > 0.17 ? 1 : sinAlt / 0.17;
+      inview.push(Object.assign({ px, py, ext }, b));
+    }
+    const sun = bodies[0];
+    for (const b of inview) {
+      if (b.kind === 'planet') {
+        const size = Math.min(5, Math.max(1.1, 0.9 + (5.5 - b.mag) * 0.42));
+        const g = ctx.createRadialGradient(b.px, b.py, 0, b.px, b.py, size * 4.5);
+        g.addColorStop(0, b.color + 'CC');
+        g.addColorStop(0.25, b.color + '55');
+        g.addColorStop(1, b.color + '00');
+        ctx.globalAlpha = b.ext;
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.arc(b.px, b.py, size * 4.5, 0, TAU); ctx.fill();
+        ctx.fillStyle = b.color;
+        ctx.beginPath(); ctx.arc(b.px, b.py, size * 0.8, 0, TAU); ctx.fill();
+      } else if (b.kind === 'sun') {
+        const rpx = 0.00465 / b.dist * f;                 // true angular radius
+        const g = ctx.createRadialGradient(b.px, b.py, 0, b.px, b.py, rpx * 6);
+        g.addColorStop(0, 'rgba(255,246,228,0.95)');
+        g.addColorStop(0.18, 'rgba(240,214,160,0.5)');
+        g.addColorStop(1, 'rgba(232,217,176,0)');
+        ctx.globalAlpha = b.ext;
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.arc(b.px, b.py, rpx * 6, 0, TAU); ctx.fill();
+      } else {                                            // moon, with true phase
+        const rpx = Math.max(2.5, 1737 / b.distKm * f);   // true angular radius
+        // bright-limb direction: sunward component ⊥ to the moon's direction
+        let pxs = sun.ux - (sun.ux * b.ux + sun.uy * b.uy + sun.uz * b.uz) * b.ux;
+        let pys = sun.uy - (sun.ux * b.ux + sun.uy * b.uy + sun.uz * b.uz) * b.uy;
+        let pzs = sun.uz - (sun.ux * b.ux + sun.uy * b.uy + sun.uz * b.uz) * b.uz;
+        const chi = Math.atan2(-(pxs * Cx + pys * Cy + pzs * Cz),
+                                 pxs * Rx + pys * Ry + pzs * Rz);
+        const cosE = sun.ux * b.ux + sun.uy * b.uy + sun.uz * b.uz;
+        const k = (1 - cosE) / 2;                         // illuminated fraction
+        const w2 = 2 * k - 1;
+        ctx.save();
+        ctx.translate(b.px, b.py);
+        ctx.rotate(chi);
+        ctx.globalAlpha = 0.5 * b.ext;                    // earthshine hint
+        ctx.fillStyle = '#14171B';
+        ctx.beginPath(); ctx.arc(0, 0, rpx, 0, TAU); ctx.fill();
+        ctx.globalAlpha = b.ext;
+        ctx.fillStyle = '#D8DCE2';
+        ctx.beginPath();
+        ctx.arc(0, 0, rpx, -Math.PI / 2, Math.PI / 2);
+        // terminator: left half-ellipse (cw) adds for gibbous; right
+        // half-ellipse (ccw) cancels the limb's winding for crescent
+        ctx.ellipse(0, 0, rpx * Math.abs(w2), rpx, 0, Math.PI / 2, -Math.PI / 2, w2 < 0);
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+    // callouts: only the closest few bodies in frame, quietly labeled
+    if (CONFIG.labels && inview.length) {
+      inview.sort((a, b2) => a.dist - b2.dist);
+      ctx.font = "8.5px 'IBM Plex Mono', monospace";
+      ctx.fillStyle = 'rgba(154,163,173,0.5)';
+      for (const b of inview.slice(0, CONFIG.callouts)) {
+        const off = b.kind === 'moon' ? Math.max(2.5, 1737 / b.distKm * f) : 12;
+        const dtxt = b.kind === 'moon'
+          ? `${Math.round(b.distKm / 100) / 10}K KM`
+          : `${b.dist.toFixed(2)} AU`;
+        ctx.globalAlpha = b.ext;
+        ctx.fillText(`${b.name} · ${dtxt}`, b.px + off + 5, b.py - off - 4);
+      }
+    }
+    ctx.globalAlpha = 1;
+
     // caption: coordinates, sidereal time, viewing azimuth — the dials
     const lstH = ((gmst + CONFIG.lon) % 360 + 360) % 360 / 15;
     const hh = String(Math.floor(lstH)).padStart(2, '0');
     const mm = String(Math.floor((lstH % 1) * 60)).padStart(2, '0');
     const azd = Math.round(azc * 180 / Math.PI / 5) * 5 % 360;
-    const src = this.builtFrom === 'gaia' ? 'Gaia DR3' : 'synthetic';
-    const cap = `${Math.abs(CONFIG.lat).toFixed(1)}°${CONFIG.lat >= 0 ? 'N' : 'S'} ${Math.abs(CONFIG.lon).toFixed(1)}°${CONFIG.lon >= 0 ? 'E' : 'W'} · LST ${hh}:${mm} · az ${azd}° · ${src}`;
+    const cap = `${Math.abs(CONFIG.lat).toFixed(1)}°${CONFIG.lat >= 0 ? 'N' : 'S'} ${Math.abs(CONFIG.lon).toFixed(1)}°${CONFIG.lon >= 0 ? 'E' : 'W'} · LST ${hh}:${mm} · az ${azd}° · ${this.builtFrom}`;
     if (cap !== this._cap) {
       this._cap = cap;
       if (scenes[current] === this) detailEl.textContent = cap;
@@ -841,7 +862,7 @@ const localSky = {
 };
 
 /* ============================================================
-   SCENE 4 — Large-scale structure (synthetic cosmic web)
+   SCENE 3 — Large-scale structure (SDSS redshift fan)
    ============================================================ */
 const cosmicWeb = {
   title: 'Large-Scale Structure',
@@ -1070,7 +1091,7 @@ const cosmicWeb = {
 /* ============================================================
    Scene manager — fade through black
    ============================================================ */
-const scenes = [orrery, starfield, localSky, cosmicWeb];
+const scenes = [orrery, localSky, cosmicWeb];
 scenes.forEach(s => s.init());
 window.addEventListener('resize', () => scenes.forEach(s => s.onResize?.()));
 

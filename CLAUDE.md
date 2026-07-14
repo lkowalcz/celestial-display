@@ -63,20 +63,20 @@ Current scenes:
    (half past, half future) at 1 s = 1 day, with a live date readout in
    the caption. Kirkwood-gapped asteroid belt (statistical), Jupiter
    trojans tied to Jupiter's true mean longitude, 1/10 AU reference rings.
-2. `starfield` — all-sky equirectangular field from real Gaia DR3 data:
-   ~482k stars to G < 10 (data/gaia_stars.bin, built by
-   scripts/gaia_preprocess.py; brightest ~20 stars from Hipparcos since
-   Gaia saturates on them). Faint field is baked into an offscreen
-   texture once at load (rebuilt on resize); naked-eye stars draw live
-   with twinkle and BP−RP temperature colors. Falls back to the previous
-   synthetic generator when the data fetch fails (offline, file://).
-3. `localSky` — real-time horizon view: perspective camera (62° FOV)
+2. `localSky` — real-time horizon view: perspective camera (62° FOV)
    standing at `?lat`/`?lon`, stars where they stand over that spot NOW
    (true sidereal time from the wall clock, verified against hand
    calculation), slowly panning the horizon with horizon extinction.
-   Shares starfield's Gaia catalog via a unit-vector + sky-bin index;
-   pause freezes the pan, never the sky. Default location: Greenwich.
-4. `cosmicWeb` — SDSS DR18 redshift fan: 736k real spectroscopic
+   Stars come from the shared `gaiaCatalog` loader (~482k Gaia DR3
+   stars to G < 10 in data/gaia_stars.bin, built by
+   scripts/gaia_preprocess.py, brightest ~20 patched from Hipparcos;
+   synthesized fallback offline/file://). Sun, Moon (with true phase
+   via terminator-ellipse winding, low-precision lunar theory ~0.3°,
+   topocentric), and naked-eye planets from the orrery's ephemeris —
+   all verified against JPL Horizons. The `?callouts=N` closest bodies
+   in frame get quiet name+distance labels. Pause freezes the pan,
+   never the sky. Default location: Greenwich.
+3. `cosmicWeb` — SDSS DR18 redshift fan: 736k real spectroscopic
    galaxies (data/sdss_galaxies.bin, built by scripts/sdss_preprocess.py),
    RA → angle, comoving distance (flat ΛCDM, H0 = 70, Ωm = 0.3) → radius.
    Precesses through 4°-wide declination slices (~36 s each, crossfaded);
@@ -94,6 +94,7 @@ Current scenes:
 | `scene`   | (rotate)       | 0-indexed scene lock, disables rotation  |
 | `lat`     | 51.4779        | observer latitude for Local Sky (deg, N+)|
 | `lon`     | 0              | observer longitude (deg, E+)             |
+| `callouts`| 4              | Local Sky: label the N closest bodies    |
 
 Typical deployments:
 - iPad frame: `?density=0.6&labels=off&hold=900`
