@@ -158,6 +158,8 @@ const CONFIG = {
   density: num('density', autoDensity),     // particle-count multiplier
   labels:  params.get('labels') !== 'off',  // planet names + AU rings
   scene:   params.has('scene') ? Math.floor(num('scene', 0)) : null, // lock to one scene
+  lat:     num('lat', 51.4779),             // observer latitude (deg, N+) — default Greenwich
+  lon:     num('lon', 0),                   // observer longitude (deg, E+)
 };
 
 const SCENE_HOLD = CONFIG.hold;
@@ -681,7 +683,165 @@ const starfield = {
 };
 
 /* ============================================================
-   SCENE 3 — Large-scale structure (synthetic cosmic web)
+   SCENE 3 — Local Sky (real-time horizon view)
+   The window, not the map: a perspective camera standing at
+   CONFIG.lat/lon, showing the stars as they stand over that spot
+   RIGHT NOW (true sidereal time from the wall clock), slowly
+   panning around the horizon. Pause freezes the pan; the sky
+   itself always runs on real time. Shares starfield's Gaia data.
+   ============================================================ */
+const localSky = {
+  title: 'Local Sky',
+  detail: 'Real-time horizon · awaiting catalog',
+  FOV_H: 62 * Math.PI / 180,   // horizontal field of view
+  PAN_S: 540,                  // seconds per full look-around (× 1/MOTION)
+  built: null, builtFrom: null, _cap: '',
+
+  /* one-time: ICRS unit vectors + coarse sky bins for FOV culling */
+  build() {
+    const g = starfield.gaia;
+    let n, ra, dec, alpha, mag, bk;
+    if (g) {
+      const nb = g.bright.length;
+      n = nb + g.nf;
+      ra = new Float32Array(n); dec = new Float32Array(n);
+      alpha = new Float32Array(n); mag = new Float32Array(n);
+      bk = new Uint8Array(n);
+      g.bright.forEach((s, i) => {
+        ra[i] = s.ra; dec[i] = s.dec; mag[i] = s.m; bk[i] = s.bk;
+        alpha[i] = Math.min(1, 0.30 + (starfield.BRIGHT_CUT - s.m) * 0.13);
+      });
+      for (let i = 0; i < g.nf; i++) {
+        ra[nb + i] = g.fRa[i]; dec[nb + i] = g.fDec[i];
+        mag[nb + i] = 8; alpha[nb + i] = g.fAlpha[i] * 0.8;
+      }
+      this.builtFrom = 'gaia';
+    } else if (starfield.stars) {
+      // synthetic fallback (offline): same pipeline, honest caption
+      const st = starfield.stars;
+      n = st.length;
+      ra = new Float32Array(n); dec = new Float32Array(n);
+      alpha = new Float32Array(n); mag = new Float32Array(n);
+      bk = null;
+      st.forEach((s, i) => {
+        ra[i] = s.ra; dec[i] = s.dec;
+        mag[i] = 7 - s.m * 5; alpha[i] = 0.25 + s.m * 0.6;
+      });
+      this.builtFrom = 'synthetic';
+    } else return;
+
+    const vx = new Float32Array(n), vy = new Float32Array(n), vz = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const cd = Math.cos(dec[i]);
+      vx[i] = cd * Math.cos(ra[i]); vy[i] = cd * Math.sin(ra[i]); vz[i] = Math.sin(dec[i]);
+    }
+    // 24 × 12 sky bins (15° cells) for per-frame FOV culling
+    const NRA = 24, NDEC = 12, nb2 = NRA * NDEC;
+    const counts = new Uint32Array(nb2);
+    const binOf = new Uint16Array(n);
+    for (let i = 0; i < n; i++) {
+      const bra = Math.min(NRA - 1, Math.floor(((ra[i] / TAU) % 1 + 1) % 1 * NRA));
+      const bdec = Math.min(NDEC - 1, Math.floor((dec[i] / Math.PI + 0.5) * NDEC));
+      binOf[i] = bdec * NRA + bra; counts[binOf[i]]++;
+    }
+    const starts = new Uint32Array(nb2 + 1);
+    for (let b = 0; b < nb2; b++) starts[b + 1] = starts[b] + counts[b];
+    const order = new Uint32Array(n);
+    const cursor = starts.slice(0, nb2);
+    for (let i = 0; i < n; i++) order[cursor[binOf[i]]++] = i;
+    // bin center unit vectors
+    const bcx = new Float32Array(nb2), bcy = new Float32Array(nb2), bcz = new Float32Array(nb2);
+    for (let bd = 0; bd < NDEC; bd++) for (let br = 0; br < NRA; br++) {
+      const b = bd * NRA + br;
+      const cra = (br + 0.5) / NRA * TAU, cdec = ((bd + 0.5) / NDEC - 0.5) * Math.PI;
+      const cd = Math.cos(cdec);
+      bcx[b] = cd * Math.cos(cra); bcy[b] = cd * Math.sin(cra); bcz[b] = Math.sin(cdec);
+    }
+    this.built = { n, vx, vy, vz, alpha, mag, bk, starts, order, bcx, bcy, bcz, nb2 };
+  },
+
+  init() {},
+  onResize() {},
+
+  draw(t) {
+    if (!this.built || (this.builtFrom === 'synthetic' && starfield.gaia)) this.build();
+    if (!this.built) return;
+    const B = this.built;
+
+    // --- true sidereal time from the wall clock (the scene IS a clock) ---
+    const d = Date.now() / 86400000 + 2440587.5 - 2451545.0;
+    const gmst = (280.46061837 + 360.98564736629 * d) % 360;
+    const lst = ((gmst + CONFIG.lon) % 360) * Math.PI / 180;
+    const phi = CONFIG.lat * Math.PI / 180;
+
+    // horizontal-frame basis vectors in equatorial coordinates
+    const cl = Math.cos(lst), sl = Math.sin(lst), cp = Math.cos(phi), sp = Math.sin(phi);
+    const Ux = cp * cl, Uy = cp * sl, Uz = sp;              // up
+    const Nx = -sp * cl, Ny = -sp * sl, Nz = cp;            // north
+    const Ex = -sl, Ey = cl, Ez = 0;                        // east
+
+    // --- camera: slow pan in azimuth, gentle nod in altitude ---
+    const azc = (t * TAU / this.PAN_S * MOTION) % TAU;
+    const altc = 0.66 + 0.10 * Math.sin(t * 0.009 * MOTION);   // ~38° ± 6°
+    const ca = Math.cos(azc), sa = Math.sin(azc), ch = Math.cos(altc), sh = Math.sin(altc);
+    const hx = Nx * ca + Ex * sa, hy = Ny * ca + Ey * sa, hz = Nz * ca + Ez * sa;
+    const Fx = hx * ch + Ux * sh, Fy = hy * ch + Uy * sh, Fz = hz * ch + Uz * sh;  // forward
+    const Rx = -Nx * sa + Ex * ca, Ry = -Ny * sa + Ey * ca, Rz = -Nz * sa + Ez * ca; // right
+    const Cx = Ux * ch - hx * sh, Cy = Uy * ch - hy * sh, Cz = Uz * ch - hz * sh;  // cam up
+
+    const f = (W / 2) / Math.tan(this.FOV_H / 2);
+    const halfDiag = Math.atan(Math.hypot(W, H) / 2 / f);
+    const cosCull = Math.cos(halfDiag + 0.24);   // FOV half-diagonal + bin radius
+    const minvz = Math.cos(halfDiag + 0.06);
+    const cx = W / 2, cy = H / 2;
+    const sprites = starfield.gaia ? starfield.gaia.sprites : null;
+    const magLim = D >= 1 ? 99 : 8.2 + 1.8 * D;   // density trims only the faintest
+
+    // faint stars colorless by design: scotopic vision sees no color there
+    ctx.fillStyle = '#C9D2DC';
+    for (let b = 0; b < B.nb2; b++) {
+      if (B.bcx[b] * Fx + B.bcy[b] * Fy + B.bcz[b] * Fz < cosCull) continue;
+      for (let k = B.starts[b]; k < B.starts[b + 1]; k++) {
+        const i = B.order[k];
+        const x = B.vx[i], y = B.vy[i], z = B.vz[i];
+        const vz2 = x * Fx + y * Fy + z * Fz;
+        if (vz2 < minvz) continue;
+        const sinAlt = x * Ux + y * Uy + z * Uz;
+        if (sinAlt < 0) continue;                       // below the horizon
+        if (B.mag[i] > magLim) continue;
+        const px = cx + (x * Rx + y * Ry + z * Rz) / vz2 * f;
+        const py = cy - (x * Cx + y * Cy + z * Cz) / vz2 * f;
+        if (px < -8 || px > W + 8 || py < -8 || py > H + 8) continue;
+        const ext = sinAlt > 0.17 ? 1 : sinAlt / 0.17;  // atmospheric extinction < ~10° alt
+        if (B.mag[i] < 6 && sprites && B.bk) {
+          const twinkle = reduceMotion ? 1 : 0.85 + 0.15 * Math.sin(t * 1.1 + i);
+          const s = (0.9 + (6 - B.mag[i]) * 0.5) * 4;
+          ctx.globalAlpha = B.alpha[i] * ext * twinkle;
+          ctx.drawImage(sprites[B.bk[i]], px - s, py - s, s * 2, s * 2);
+        } else {
+          ctx.globalAlpha = B.alpha[i] * ext;
+          ctx.fillRect(px, py, 1.2, 1.2);
+        }
+      }
+    }
+    ctx.globalAlpha = 1;
+
+    // caption: coordinates, sidereal time, viewing azimuth — the dials
+    const lstH = ((gmst + CONFIG.lon) % 360 + 360) % 360 / 15;
+    const hh = String(Math.floor(lstH)).padStart(2, '0');
+    const mm = String(Math.floor((lstH % 1) * 60)).padStart(2, '0');
+    const azd = Math.round(azc * 180 / Math.PI / 5) * 5 % 360;
+    const src = this.builtFrom === 'gaia' ? 'Gaia DR3' : 'synthetic';
+    const cap = `${Math.abs(CONFIG.lat).toFixed(1)}°${CONFIG.lat >= 0 ? 'N' : 'S'} ${Math.abs(CONFIG.lon).toFixed(1)}°${CONFIG.lon >= 0 ? 'E' : 'W'} · LST ${hh}:${mm} · az ${azd}° · ${src}`;
+    if (cap !== this._cap) {
+      this._cap = cap;
+      if (scenes[current] === this) detailEl.textContent = cap;
+    }
+  },
+};
+
+/* ============================================================
+   SCENE 4 — Large-scale structure (synthetic cosmic web)
    ============================================================ */
 const cosmicWeb = {
   title: 'Large-Scale Structure',
@@ -910,7 +1070,7 @@ const cosmicWeb = {
 /* ============================================================
    Scene manager — fade through black
    ============================================================ */
-const scenes = [orrery, starfield, cosmicWeb];
+const scenes = [orrery, starfield, localSky, cosmicWeb];
 scenes.forEach(s => s.init());
 window.addEventListener('resize', () => scenes.forEach(s => s.onResize?.()));
 

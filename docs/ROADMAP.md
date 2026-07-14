@@ -52,6 +52,11 @@ Possibly both, as separate scenes.
 
 ## 4. Additional scene candidates
 
+- Planets, Moon, and Sun in the Local Sky scene: geocentric positions
+  are one subtraction away from the orrery's heliocentric ephemeris —
+  seeing Venus in the window where Venus actually is would complete the
+  clock. Moon needs its own (simple truncated) theory.
+
 - Laniakea-style local flows: galaxy peculiar-velocity streamlines
   (CosmicFlows data) — the most beautiful figure in modern cosmology.
 - Space weather instrument panel: DSCOVR solar wind speed/density/Bz,

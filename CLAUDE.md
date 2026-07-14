@@ -70,7 +70,13 @@ Current scenes:
    texture once at load (rebuilt on resize); naked-eye stars draw live
    with twinkle and BP−RP temperature colors. Falls back to the previous
    synthetic generator when the data fetch fails (offline, file://).
-3. `cosmicWeb` — SDSS DR18 redshift fan: 736k real spectroscopic
+3. `localSky` — real-time horizon view: perspective camera (62° FOV)
+   standing at `?lat`/`?lon`, stars where they stand over that spot NOW
+   (true sidereal time from the wall clock, verified against hand
+   calculation), slowly panning the horizon with horizon extinction.
+   Shares starfield's Gaia catalog via a unit-vector + sky-bin index;
+   pause freezes the pan, never the sky. Default location: Greenwich.
+4. `cosmicWeb` — SDSS DR18 redshift fan: 736k real spectroscopic
    galaxies (data/sdss_galaxies.bin, built by scripts/sdss_preprocess.py),
    RA → angle, comoving distance (flat ΛCDM, H0 = 70, Ωm = 0.3) → radius.
    Precesses through 4°-wide declination slices (~36 s each, crossfaded);
@@ -86,6 +92,8 @@ Current scenes:
 | `density` | auto by pixels | particle-count multiplier (0.35–2.0)     |
 | `labels`  | on             | `off` hides planet names + AU rings      |
 | `scene`   | (rotate)       | 0-indexed scene lock, disables rotation  |
+| `lat`     | 51.4779        | observer latitude for Local Sky (deg, N+)|
+| `lon`     | 0              | observer longitude (deg, E+)             |
 
 Typical deployments:
 - iPad frame: `?density=0.6&labels=off&hold=900`
