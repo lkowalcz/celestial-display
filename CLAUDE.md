@@ -63,9 +63,13 @@ Current scenes:
    (half past, half future) at 1 s = 1 day, with a live date readout in
    the caption. Kirkwood-gapped asteroid belt (statistical), Jupiter
    trojans tied to Jupiter's true mean longitude, 1/10 AU reference rings.
-2. `starfield` — all-sky equirectangular star field with tilted galactic
-   band. SYNTHETIC — flagship upgrade is replacing it with Gaia DR3
-   (see docs/ROADMAP.md and scripts/gaia_preprocess.py).
+2. `starfield` — all-sky equirectangular field from real Gaia DR3 data:
+   ~482k stars to G < 10 (data/gaia_stars.bin, built by
+   scripts/gaia_preprocess.py; brightest ~20 stars from Hipparcos since
+   Gaia saturates on them). Faint field is baked into an offscreen
+   texture once at load (rebuilt on resize); naked-eye stars draw live
+   with twinkle and BP−RP temperature colors. Falls back to the previous
+   synthetic generator when the data fetch fails (offline, file://).
 3. `cosmicWeb` — synthetic large-scale structure: halo nodes, nearest-
    neighbor filaments, 3D slow rotation. Upgrade path: SDSS or IllustrisTNG.
 

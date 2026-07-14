@@ -5,9 +5,13 @@ an offline Python script in `scripts/` converts a public catalog into a
 compact static file in `data/`, and the scene fetches it once at load
 (falling back to the current synthetic generator if the fetch fails).
 
-## 1. Gaia DR3 star field (flagship upgrade)
+## 1. Gaia DR3 star field (flagship upgrade) — DONE 2026-07
 
-Replace the synthetic star field with real astrometry. Plan:
+Shipped: 482k stars to G < 10 in data/gaia_stars.bin; faint field baked
+to a texture, bright stars live with BP−RP colors; Hipparcos fills the
+Gaia bright-star saturation gap (nothing below G ≈ 1.7 in gaia_source).
+Possible refinements: deeper mag limit via density texture, proper
+motions. Original plan:
 
 - Query Gaia DR3 for stars to magnitude ~10–11 (~1–2M stars is plenty;
   full DR3 is 1.8B and pointless at display resolution).

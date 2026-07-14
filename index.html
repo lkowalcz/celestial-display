@@ -423,7 +423,155 @@ const starfield = {
   detail: 'All-sky projection · synthetic field · swap in Gaia DR3',
   stars: null, nebulae: null,
 
+  // --- Gaia DR3 (loaded async from data/gaia_stars.bin; synthetic above
+  //     stays as the offline/file:// fallback) ---
+  gaia: null,            // { bright: [...], faint: {ra,dec,alpha,bucket,order}, sprites }
+  fieldTex: null, texW: 0, texH: 0,
+  BRIGHT_CUT: 6.0,       // G < 6 drawn live w/ twinkle; fainter baked into texture
+  DRIFT: 0.011,          // rad/s of sky rotation (× MOTION)
+
+  /* BP−RP color index → approximate blackbody star color, slightly
+     desaturated toward the display's star white. */
+  bprpColor(c) {
+    const stops = [
+      [-0.5, [158, 178, 244]],   // O/B
+      [ 0.1, [186, 202, 244]],
+      [ 0.5, [225, 231, 242]],   // A/F — house star white
+      [ 0.9, [242, 238, 220]],   // G
+      [ 1.5, [240, 216, 176]],   // K
+      [ 2.3, [232, 186, 138]],   // early M
+      [ 3.4, [222, 158, 110]],   // M
+    ];
+    let i = 0;
+    while (i < stops.length - 2 && c > stops[i + 1][0]) i++;
+    const [c0, rgb0] = stops[i], [c1, rgb1] = stops[i + 1];
+    const f = Math.max(0, Math.min(1, (c - c0) / (c1 - c0)));
+    return rgb0.map((v, k) => Math.round(v + (rgb1[k] - v) * f));
+  },
+
+  async loadGaia() {
+    try {
+      const res = await fetch('data/gaia_stars.bin');
+      if (!res.ok) return;
+      const buf = await res.arrayBuffer();
+      const dv = new DataView(buf);
+      if (dv.getUint32(0, true) !== 0x47414941) return;   // "GAIA"
+      const n = dv.getUint32(4, true);
+      const u = new Uint16Array(buf, 8, n * 4);
+
+      // galactic → ICRS rotation (transpose of the standard ICRS→galactic matrix)
+      const R = [
+        -0.0548755604,  0.4941094279, -0.8676661490,
+        -0.8734370902, -0.4448296300, -0.1980763734,
+        -0.4838350155,  0.7469822445,  0.4559837762,
+      ];
+
+      const NB = 24;                       // quantized color buckets
+      const bucketRGB = [];
+      for (let b = 0; b < NB; b++) {
+        bucketRGB.push(this.bprpColor(-0.6 + (b + 0.5) * 4.6 / NB));
+      }
+
+      const bright = [];
+      const fRa = new Float32Array(n), fDec = new Float32Array(n);
+      const fAlpha = new Float32Array(n), fBucket = new Uint8Array(n);
+      let nf = 0;
+      for (let i = 0; i < n; i++) {
+        const l   = u[i * 4]     / 65535 * TAU;
+        const b   = u[i * 4 + 1] / 65535 * Math.PI - Math.PI / 2;
+        const mag = u[i * 4 + 2] / 65535 * 14 - 2;          // [-2, 12]
+        const col = u[i * 4 + 3] / 65535 * 4.6 - 0.6;       // [-0.6, 4.0]
+        const cb = Math.cos(b);
+        const xg = cb * Math.cos(l), yg = cb * Math.sin(l), zg = Math.sin(b);
+        const x = R[0] * xg + R[1] * yg + R[2] * zg;
+        const y = R[3] * xg + R[4] * yg + R[5] * zg;
+        const z = R[6] * xg + R[7] * yg + R[8] * zg;
+        const ra = Math.atan2(y, x), dec = Math.asin(Math.max(-1, Math.min(1, z)));
+        const bucket = Math.max(0, Math.min(NB - 1, Math.floor((col + 0.6) / 4.6 * NB)));
+        if (mag < this.BRIGHT_CUT) {
+          bright.push({ ra, dec, m: mag, bk: bucket, tw: rand(0, TAU), tws: rand(0.3, 1.4) });
+        } else {
+          fRa[nf] = ra; fDec[nf] = dec; fBucket[nf] = bucket;
+          fAlpha[nf] = Math.min(0.85, 1.9 * Math.pow(10, -0.4 * (mag - this.BRIGHT_CUT)));
+          nf++;
+        }
+      }
+      bright.sort((a, b) => a.m - b.m);
+
+      // paint order grouped by color bucket (one fillStyle per bucket)
+      const order = new Uint32Array(nf);
+      for (let i = 0; i < nf; i++) order[i] = i;
+      order.sort((a, b) => fBucket[a] - fBucket[b]);
+
+      // pre-rendered glow sprites per bucket (no per-frame gradients)
+      const sprites = bucketRGB.map(rgb => {
+        const c = document.createElement('canvas');
+        c.width = c.height = 64;
+        const g2 = c.getContext('2d');
+        const grad = g2.createRadialGradient(32, 32, 0, 32, 32, 32);
+        grad.addColorStop(0, '#FFFFFF');
+        grad.addColorStop(0.10, `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0.9)`);
+        grad.addColorStop(0.32, `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0.22)`);
+        grad.addColorStop(1, `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0)`);
+        g2.fillStyle = grad;
+        g2.fillRect(0, 0, 64, 64);
+        return c;
+      });
+
+      this.gaia = { bright, nf, fRa, fDec, fAlpha, fBucket, order, bucketRGB, sprites };
+      this.buildFieldTexture();
+      this.detail = `Gaia DR3 · ${Math.round(n / 1000)}k stars · G < 10`;
+      if (scenes[current] === this) setCaption(current);
+    } catch (e) { console.warn('gaia load failed, synthetic fallback:', e); }
+  },
+
+  /* bake the faint field into an equirectangular texture at current W×H */
+  buildFieldTexture() {
+    const g = this.gaia;
+    if (!g || !W || !H) return;
+    const tex = this.fieldTex && this.texW === W && this.texH === H
+      ? this.fieldTex : document.createElement('canvas');
+    tex.width = W; tex.height = H;
+    this.fieldTex = tex; this.texW = W; this.texH = H;
+    const tc = tex.getContext('2d');
+    tc.clearRect(0, 0, W, H);
+    tc.globalCompositeOperation = 'lighter';   // real intensities accumulate
+    let curBucket = -1;
+    for (let k = 0; k < g.nf; k++) {
+      const i = g.order[k];
+      if (g.fBucket[i] !== curBucket) {
+        curBucket = g.fBucket[i];
+        const rgb = g.bucketRGB[curBucket];
+        tc.fillStyle = `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
+      }
+      const x = ((g.fRa[i] / TAU) % 1 + 1) % 1 * W;
+      const y = (0.5 - g.fDec[i] / Math.PI) * H;
+      tc.globalAlpha = g.fAlpha[i];
+      tc.fillRect(x, y, 1, 1);
+    }
+    // bright stars beyond the live-draw budget are baked in as well,
+    // so no star is silently dropped at low density
+    g.liveCap = Math.min(g.bright.length, Math.round(7000 * D));
+    for (let i = g.liveCap; i < g.bright.length; i++) {
+      const s = g.bright[i];
+      const rgb = g.bucketRGB[s.bk];
+      tc.fillStyle = `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
+      const x = ((s.ra / TAU) % 1 + 1) % 1 * W;
+      const y = (0.5 - s.dec / Math.PI) * H;
+      tc.globalAlpha = 0.55;
+      tc.fillRect(x - 1, y - 1, 2, 2);
+    }
+    tc.globalAlpha = 1;
+    tc.globalCompositeOperation = 'source-over';
+  },
+
+  onResize() {
+    clearTimeout(this._rsTimer);
+    this._rsTimer = setTimeout(() => this.buildFieldTexture(), 300);
+  },
+
   init() {
+    this.loadGaia();   // async; falls back to synthetic below if unavailable
     const TILT = 1.05; // galactic-plane tilt vs. projection equator (rad)
     const toEq = (l, b) => {
       // point on sphere in "galactic" frame → rotate about x by TILT
@@ -464,13 +612,45 @@ const starfield = {
   },
 
   project(ra, dec, t) {
-    const drift = 0.011 * MOTION;   // rad/s of sky rotation
+    const drift = this.DRIFT * MOTION;
     let x = (((ra + t * drift) / TAU) % 1 + 1) % 1;
     const y = (0.5 - dec / Math.PI);
     return { x: x * W, y: y * H };
   },
 
   draw(t) {
+    if (this.gaia) { this.drawGaia(t); return; }
+    this.drawSynthetic(t);
+  },
+
+  drawGaia(t) {
+    const g = this.gaia;
+    if (!this.fieldTex || this.texW !== W || this.texH !== H) this.buildFieldTexture();
+
+    // faint field: one baked texture, blitted twice for horizontal wrap
+    const dx = ((t * this.DRIFT * MOTION / TAU) % 1 + 1) % 1 * W;
+    ctx.drawImage(this.fieldTex, dx - W, 0);
+    ctx.drawImage(this.fieldTex, dx, 0);
+
+    // bright stars, live w/ twinkle, brightest first (density-capped;
+    // the remainder is baked into the field texture)
+    const count = g.liveCap;
+    for (let i = 0; i < count; i++) {
+      const s = g.bright[i];
+      const p = this.project(s.ra, s.dec, t);
+      const twinkle = reduceMotion ? 1 : 0.86 + 0.14 * Math.sin(t * s.tws + s.tw);
+      const size = 0.8 + (this.BRIGHT_CUT - s.m) * 0.45;    // Sirius ≈ 4.2
+      const glowR = size * 4;
+      ctx.globalAlpha = Math.min(1, 0.30 + (this.BRIGHT_CUT - s.m) * 0.13) * twinkle;
+      const spr = g.sprites[s.bk];
+      ctx.drawImage(spr, p.x - glowR, p.y - glowR, glowR * 2, glowR * 2);
+      if (p.x < glowR) ctx.drawImage(spr, p.x + W - glowR, p.y - glowR, glowR * 2, glowR * 2);
+      else if (p.x > W - glowR) ctx.drawImage(spr, p.x - W - glowR, p.y - glowR, glowR * 2, glowR * 2);
+    }
+    ctx.globalAlpha = 1;
+  },
+
+  drawSynthetic(t) {
     // nebulosity first
     for (const n of this.nebulae) {
       const p = this.project(n.ra, n.dec, t);
@@ -584,6 +764,7 @@ const cosmicWeb = {
    ============================================================ */
 const scenes = [orrery, starfield, cosmicWeb];
 scenes.forEach(s => s.init());
+window.addEventListener('resize', () => scenes.forEach(s => s.onResize?.()));
 
 const captionEl = document.getElementById('caption');
 const titleEl = captionEl.querySelector('.title');

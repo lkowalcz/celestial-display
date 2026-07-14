@@ -58,6 +58,49 @@ def query_gaia(mag_limit: float, max_rows: int) -> "np.ndarray":
     return out
 
 
+def query_bright_hipparcos(vmax: float = 3.0) -> "np.ndarray":
+    """Gaia saturates on the brightest stars (nothing below G ~ 1.7 in DR3
+    gaia_source with bp_rp), so Sirius, Vega, Betelgeuse etc. are absent.
+    Augment from Hipparcos (VizieR I/239) with approximate photometric
+    conversions (V ~ G, BP-RP ~ 1.3(B-V)) — display-grade, not science-grade.
+    """
+    from astroquery.vizier import Vizier
+    from astropy.coordinates import SkyCoord
+
+    v = Vizier(columns=["RAICRS", "DEICRS", "Vmag", "B-V"],
+               column_filters={"Vmag": f"<{vmax}"}, row_limit=-1)
+    table = v.query_constraints(catalog="I/239/hip_main")[0]
+    print(f"Hipparcos bright stars (V < {vmax}): {len(table)}", file=sys.stderr)
+
+    vmag = np.ma.filled(np.asarray(table["Vmag"], dtype=np.float64), 1.0)
+    bv = np.ma.filled(np.asarray(table["B-V"], dtype=np.float64), 0.5)
+    gal = SkyCoord(ra=table["RAICRS"], dec=table["DEICRS"],
+                   unit="deg", frame="icrs").galactic
+
+    out = np.empty((len(table), 4), dtype=np.float64)
+    out[:, 0] = gal.l.radian
+    out[:, 1] = gal.b.radian
+    out[:, 2] = vmag                # V ~ G
+    out[:, 3] = 1.3 * bv            # B-V -> BP-RP, rough
+    return out
+
+
+def merge_bright(gaia: "np.ndarray", hip: "np.ndarray") -> "np.ndarray":
+    """Append Hipparcos stars not already present in Gaia (0.3 deg match
+    against Gaia G < 3.5)."""
+    def unit(lon, lat):
+        cb = np.cos(lat)
+        return np.stack([cb * np.cos(lon), cb * np.sin(lon), np.sin(lat)], axis=1)
+
+    gb = gaia[gaia[:, 2] < 3.5]
+    gu, hu = unit(gb[:, 0], gb[:, 1]), unit(hip[:, 0], hip[:, 1])
+    cos_match = np.cos(np.radians(0.3))
+    dup = (hu @ gu.T).max(axis=1) > cos_match if len(gb) else np.zeros(len(hip), bool)
+    added = hip[~dup]
+    print(f"  {dup.sum()} already in Gaia, adding {len(added)}", file=sys.stderr)
+    return np.vstack([gaia, added])
+
+
 def pack(stars: "np.ndarray", path: str) -> None:
     lon = np.mod(stars[:, 0], 2 * np.pi) / (2 * np.pi)
     lat = (stars[:, 1] + np.pi / 2) / np.pi
@@ -83,6 +126,7 @@ def main() -> None:
     args = p.parse_args()
 
     stars = query_gaia(args.mag_limit, args.max_rows)
+    stars = merge_bright(stars, query_bright_hipparcos())
     pack(stars, args.out)
 
 

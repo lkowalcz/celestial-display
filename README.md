@@ -54,10 +54,12 @@ build.
 
 ## Data upgrades
 
-The star field and cosmic web currently use synthetic data (and say so in
-their captions). The upgrade path — Gaia DR3 for the stars, SDSS or
-IllustrisTNG for large-scale structure — is documented in
-`docs/ROADMAP.md`, with a starter preprocessing script in `scripts/`.
+The star field renders real Gaia DR3 astrometry: ~482k stars to G < 10
+(`data/gaia_stars.bin`, built by `scripts/gaia_preprocess.py`), with the
+brightest ~20 stars — which saturate Gaia — patched in from Hipparcos.
+Offline or over `file://` it falls back to a synthetic field and says so
+in the caption. The cosmic web is still synthetic; the upgrade path —
+SDSS or IllustrisTNG — is documented in `docs/ROADMAP.md`.
 
 ## Development conventions
 
