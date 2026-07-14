@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#000000">
+<title>Celestial Display</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400&display=swap');
+
+  :root {
+    --ink-bright: #E8ECF2;
+    --ink-mid:    #9AA3AD;
+    --ink-dim:    #565E68;
+    --ice:        #7FB4D9;
+    --amber:      #C9A26B;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body {
+    width: 100%; height: 100%;
+    background: #000;
+    overflow: hidden;
+    font-family: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+    cursor: default;
+  }
+
+  #stage { position: fixed; inset: 0; display: block; }
+
+  /* ---------- caption ---------- */
+  #caption {
+    position: fixed;
+    top: 28px; left: 32px;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 1.6s ease;
+  }
+  #caption.visible { opacity: 1; }
+  #caption .title {
+    font-size: 11px;
+    font-weight: 400;
+    letter-spacing: 0.28em;
+    color: var(--ink-mid);
+    text-transform: uppercase;
+  }
+  #caption .detail {
+    margin-top: 7px;
+    font-size: 9px;
+    font-weight: 300;
+    letter-spacing: 0.18em;
+    color: var(--ink-dim);
+    text-transform: uppercase;
+  }
+
+  /* ---------- controls (hover-revealed) ---------- */
+  #controls {
+    position: fixed;
+    bottom: 26px; left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    opacity: 0;
+    transition: opacity 0.5s ease;
+    pointer-events: none;
+  }
+  #controls.visible { opacity: 1; pointer-events: auto; }
+
+  #controls button {
+    background: none;
+    border: 1px solid rgba(154,163,173,0.25);
+    color: var(--ink-mid);
+    font-family: inherit;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    width: 30px; height: 30px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: border-color 0.25s, color 0.25s;
+  }
+  #controls button:hover { border-color: var(--ink-mid); color: var(--ink-bright); }
+  #controls button:focus-visible {
+    outline: 1px solid var(--ice);
+    outline-offset: 2px;
+  }
+
+  #dots { display: flex; gap: 10px; align-items: center; }
+  #dots .dot {
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: rgba(154,163,173,0.3);
+    transition: background 0.4s, transform 0.4s;
+    cursor: pointer;
+    border: none; padding: 0;
+  }
+  #dots .dot.active { background: var(--ink-bright); transform: scale(1.3); }
+  #dots .dot:focus-visible { outline: 1px solid var(--ice); outline-offset: 3px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    #caption { transition: opacity 0.3s ease; }
+  }
+</style>
+</head>
+<body>
+
+<canvas id="stage" aria-label="Rotating astronomical visualization"></canvas>
+
+<div id="caption" aria-live="polite">
+  <div class="title"></div>
+  <div class="detail"></div>
+</div>
+
+<div id="controls">
+  <button id="prev" aria-label="Previous scene">‹</button>
+  <div id="dots" role="tablist"></div>
+  <button id="pause" aria-label="Pause">❚❚</button>
+  <button id="next" aria-label="Next scene">›</button>
+</div>
+
+<script>
+'use strict';
+
+/* ============================================================
+   Celestial Display — prototype
+   Three scenes, crossfaded through black (OLED-friendly):
+     1. Heliocentric — log-radial Keplerian orrery
+     2. Stellar sphere — all-sky field w/ galactic band
+     3. Large-scale structure — synthetic cosmic web
+   ============================================================ */
+
+const TAU = Math.PI * 2;
+const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const MOTION = reduceMotion ? 0.12 : 1.0;
+
+/* ---------- device config via URL params ----------
+   One deployment, many displays. Examples:
+     ?hold=1800                 wall display: 30 min per scene
+     ?density=0.6&labels=off    small tablet: lighter field, pure art
+     ?scene=1                   lock to a single scene (0-indexed)
+   --------------------------------------------------- */
+const params = new URLSearchParams(location.search);
+const num = (k, d) => { const v = parseFloat(params.get(k)); return Number.isFinite(v) ? v : d; };
+
+// default particle density scales with pixel count (tablet ≈ 0.5–0.7, 4K wall ≈ 1.5+)
+const autoDensity = Math.max(0.35, Math.min(2.0,
+  (window.innerWidth * window.innerHeight) / (1920 * 1080)));
+
+const CONFIG = {
+  hold:    num('hold', 40),                 // seconds per scene
+  fade:    num('fade', 2.6),                // crossfade duration
+  density: num('density', autoDensity),     // particle-count multiplier
+  labels:  params.get('labels') !== 'off',  // planet names + AU rings
+  scene:   params.has('scene') ? Math.floor(num('scene', 0)) : null, // lock to one scene
+};
+
+const SCENE_HOLD = CONFIG.hold;
+const FADE = CONFIG.fade;
+const D = CONFIG.density;
+
+const canvas = document.getElementById('stage');
+const ctx = canvas.getContext('2d');
+let W = 0, H = 0, DPR = 1;
+
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth; H = window.innerHeight;
+  canvas.width = W * DPR; canvas.height = H * DPR;
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+}
+window.addEventListener('resize', resize);
+resize();
+
+/* ---------- shared helpers ---------- */
+const rand = (a, b) => a + Math.random() * (b - a);
+function gauss() { // Box–Muller
+  let u = 0, v = 0;
+  while (u === 0) u = Math.random();
+  while (v === 0) v = Math.random();
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(TAU * v);
+}
+const smooth = t => t * t * (3 - 2 * t);
+
+/* Solve Kepler's equation M = E − e·sinE (Newton) */
+function keplerE(M, e) {
+  let E = e < 0.8 ? M : Math.PI;
+  for (let i = 0; i < 6; i++) {
+    E -= (E - e * Math.sin(E) - M) / (1 - e * Math.cos(E));
+  }
+  return E;
+}
+
+/* ============================================================
+   SCENE 1 — Heliocentric (log-radial orrery)
+   ============================================================ */
+const orrery = {
+  title: 'Heliocentric',
+  detail: 'Log-radial · Keplerian motion · 1 s ≈ 6 days',
+
+  // a (AU), e, longitude of perihelion ϖ (deg), period (yr), color, size, name
+  planets: [
+    { a: 0.387,  e: 0.206, w:  77, P: 0.241,  c: '#B8B2A8', s: 1.7, name: 'MERCURY' },
+    { a: 0.723,  e: 0.007, w: 131, P: 0.615,  c: '#E6D3A8', s: 2.4, name: 'VENUS'   },
+    { a: 1.000,  e: 0.017, w: 103, P: 1.000,  c: '#7FB4D9', s: 2.5, name: 'EARTH'   },
+    { a: 1.524,  e: 0.093, w: 336, P: 1.881,  c: '#D08159', s: 2.0, name: 'MARS'    },
+    { a: 5.203,  e: 0.048, w:  14, P: 11.86,  c: '#D9B48A', s: 4.4, name: 'JUPITER' },
+    { a: 9.537,  e: 0.054, w:  93, P: 29.45,  c: '#E3CFA0', s: 3.8, name: 'SATURN'  },
+    { a: 19.19,  e: 0.047, w: 173, P: 84.02,  c: '#9FD4D9', s: 3.0, name: 'URANUS'  },
+    { a: 30.07,  e: 0.009, w:  48, P: 164.8,  c: '#6E93D6', s: 3.0, name: 'NEPTUNE' },
+    { a: 39.48,  e: 0.249, w: 224, P: 248.0,  c: '#8E8880', s: 1.5, name: 'PLUTO', dashed: true },
+  ],
+
+  EARTH_PERIOD_S: 60,       // Earth completes one orbit in 60 s of display time
+  R_MIN_AU: 0.28, R_MAX_AU: 52,
+  belt: null, trojans: null,
+
+  init() {
+    // --- main belt with Kirkwood gaps ---
+    const gaps = [
+      { a: 2.502, w: 0.048 },  // 3:1
+      { a: 2.825, w: 0.032 },  // 5:2
+      { a: 2.958, w: 0.026 },  // 7:3
+      { a: 3.279, w: 0.042 },  // 2:1
+    ];
+    const belt = [];
+    const beltCount = Math.round(1400 * D);
+    while (belt.length < beltCount) {
+      const a = rand(2.06, 3.30);
+      if (gaps.some(g => Math.abs(a - g.a) < g.w)) continue;
+      belt.push({
+        a,
+        phase: rand(0, TAU),
+        n: TAU / (this.EARTH_PERIOD_S * Math.pow(a, 1.5)),  // Kepler III
+        jitter: gauss() * 0.02,
+        alpha: rand(0.10, 0.38),
+      });
+    }
+    this.belt = belt;
+
+    // --- Jupiter trojans (L4 / L5 clumps, co-orbital) ---
+    const jup = this.planets[4];
+    const nJ = TAU / (this.EARTH_PERIOD_S * jup.P);
+    const trojans = [];
+    for (const sign of [1, -1]) {
+      for (let i = 0; i < Math.round(130 * D); i++) {
+        trojans.push({
+          a: jup.a * (1 + gauss() * 0.015),
+          lead: sign * (Math.PI / 3 + gauss() * 0.16),
+          n: nJ,
+          alpha: rand(0.10, 0.32),
+        });
+      }
+    }
+    this.trojans = trojans;
+  },
+
+  Rmap(rAU, minDim) {
+    const Rin = 0.055 * minDim, Rout = 0.465 * minDim;
+    const f = Math.log(rAU / this.R_MIN_AU) / Math.log(this.R_MAX_AU / this.R_MIN_AU);
+    return Rin + (Rout - Rin) * f;
+  },
+
+  draw(t) {
+    const cx = W / 2, cy = H / 2, minDim = Math.min(W, H);
+    const font = (px) => `${px}px 'IBM Plex Mono', monospace`;
+
+    // --- AU reference rings ---
+    if (CONFIG.labels) {
+      ctx.save();
+      ctx.setLineDash([1, 5]);
+      ctx.lineWidth = 1;
+      for (const au of [1, 10]) {
+        const R = this.Rmap(au, minDim);
+        ctx.strokeStyle = 'rgba(86,94,104,0.30)';
+        ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU); ctx.stroke();
+        ctx.fillStyle = 'rgba(86,94,104,0.65)';
+        ctx.font = font(8.5);
+        ctx.fillText(`${au} AU`, cx + R * 0.7071 + 6, cy - R * 0.7071 - 6);
+      }
+      ctx.restore();
+    }
+
+    // --- Sun ---
+    let g = ctx.createRadialGradient(cx, cy, 0, cx, cy, 30);
+    g.addColorStop(0, 'rgba(255,244,224,0.95)');
+    g.addColorStop(0.12, 'rgba(240,205,150,0.55)');
+    g.addColorStop(0.5, 'rgba(201,162,107,0.10)');
+    g.addColorStop(1, 'rgba(201,162,107,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(cx, cy, 30, 0, TAU); ctx.fill();
+
+    // --- asteroid belt ---
+    ctx.fillStyle = '#8B8578';
+    for (const p of this.belt) {
+      const th = p.phase + p.n * t * MOTION;
+      const R = this.Rmap(p.a, minDim) + p.jitter * minDim;
+      ctx.globalAlpha = p.alpha;
+      ctx.fillRect(cx + R * Math.cos(th) - 0.5, cy - R * Math.sin(th) - 0.5, 1, 1);
+    }
+
+    // --- trojans (referenced to Jupiter's current mean longitude) ---
+    const jup = this.planets[4];
+    const Mjup = 0.8 + (TAU / (this.EARTH_PERIOD_S * jup.P)) * t * MOTION;
+    ctx.fillStyle = '#9A8F7C';
+    for (const p of this.trojans) {
+      const th = Mjup + p.lead;
+      const R = this.Rmap(p.a, minDim);
+      ctx.globalAlpha = p.alpha;
+      ctx.fillRect(cx + R * Math.cos(th) - 0.5, cy - R * Math.sin(th) - 0.5, 1, 1);
+    }
+    ctx.globalAlpha = 1;
+
+    // --- orbits & planets ---
+    for (const [i, pl] of this.planets.entries()) {
+      const wRad = pl.w * Math.PI / 180;
+
+      // orbit path: r(ν) = a(1−e²)/(1+e·cosν), log-mapped
+      ctx.beginPath();
+      const steps = 180;
+      for (let s = 0; s <= steps; s++) {
+        const nu = (s / steps) * TAU;
+        const r = pl.a * (1 - pl.e * pl.e) / (1 + pl.e * Math.cos(nu));
+        const R = this.Rmap(r, minDim);
+        const th = nu + wRad;
+        const x = cx + R * Math.cos(th), y = cy - R * Math.sin(th);
+        s === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      }
+      ctx.lineWidth = 1;
+      if (pl.dashed) ctx.setLineDash([2, 6]);
+      ctx.strokeStyle = `rgba(127,180,217,${pl.dashed ? 0.10 : 0.17})`;
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // planet position via Kepler's equation
+      const n = TAU / (this.EARTH_PERIOD_S * pl.P);
+      const M = i * 1.9 + n * t * MOTION;   // staggered initial phases
+      const E = keplerE(M % TAU, pl.e);
+      const nu = 2 * Math.atan2(
+        Math.sqrt(1 + pl.e) * Math.sin(E / 2),
+        Math.sqrt(1 - pl.e) * Math.cos(E / 2)
+      );
+      const r = pl.a * (1 - pl.e * Math.cos(E));
+      const R = this.Rmap(r, minDim);
+      const th = nu + wRad;
+      const x = cx + R * Math.cos(th), y = cy - R * Math.sin(th);
+
+      // glow + core
+      g = ctx.createRadialGradient(x, y, 0, x, y, pl.s * 5);
+      g.addColorStop(0, pl.c + 'AA');
+      g.addColorStop(1, pl.c + '00');
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(x, y, pl.s * 5, 0, TAU); ctx.fill();
+      ctx.fillStyle = pl.c;
+      ctx.beginPath(); ctx.arc(x, y, pl.s, 0, TAU); ctx.fill();
+
+      // Saturn's ring hint
+      if (pl.name === 'SATURN') {
+        ctx.save();
+        ctx.translate(x, y); ctx.rotate(-0.35);
+        ctx.strokeStyle = pl.c + '66';
+        ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.ellipse(0, 0, pl.s * 2.4, pl.s * 0.9, 0, 0, TAU); ctx.stroke();
+        ctx.restore();
+      }
+
+      // label
+      if (CONFIG.labels) {
+        ctx.fillStyle = 'rgba(154,163,173,0.42)';
+        ctx.font = font(8.5);
+        ctx.fillText(pl.name, x + pl.s + 6, y - pl.s - 4);
+      }
+    }
+  },
+};
+
+/* ============================================================
+   SCENE 2 — Stellar sphere (all-sky, galactic band)
+   ============================================================ */
+const starfield = {
+  title: 'Stellar Sphere',
+  detail: 'All-sky projection · synthetic field · swap in Gaia DR3',
+  stars: null, nebulae: null,
+
+  init() {
+    const TILT = 1.05; // galactic-plane tilt vs. projection equator (rad)
+    const toEq = (l, b) => {
+      // point on sphere in "galactic" frame → rotate about x by TILT
+      const x = Math.cos(b) * Math.cos(l);
+      const y = Math.cos(b) * Math.sin(l);
+      const z = Math.sin(b);
+      const y2 = y * Math.cos(TILT) - z * Math.sin(TILT);
+      const z2 = y * Math.sin(TILT) + z * Math.cos(TILT);
+      return { ra: Math.atan2(y2, x), dec: Math.asin(Math.max(-1, Math.min(1, z2))) };
+    };
+    // star color by rough temperature class
+    const colors = ['#AFC6E8', '#CBD8EC', '#E8ECF2', '#F2E8D5', '#EDD5A8', '#E0B080'];
+    const pick = () => colors[Math.min(colors.length - 1, Math.floor(Math.pow(Math.random(), 0.7) * colors.length))];
+
+    const stars = [];
+    // uniform sky population
+    for (let i = 0; i < Math.round(2600 * D); i++) {
+      const l = rand(0, TAU), b = Math.asin(rand(-1, 1));
+      const { ra, dec } = toEq(l, b);
+      stars.push({ ra, dec, m: Math.pow(Math.random(), 2.6), c: pick(), tw: rand(0, TAU), tws: rand(0.3, 1.4) });
+    }
+    // galactic band concentration
+    for (let i = 0; i < Math.round(3400 * D); i++) {
+      const l = rand(0, TAU), b = gauss() * 0.13;
+      const { ra, dec } = toEq(l, b);
+      stars.push({ ra, dec, m: Math.pow(Math.random(), 2.2) * 0.8, c: pick(), tw: rand(0, TAU), tws: rand(0.3, 1.4) });
+    }
+    this.stars = stars;
+
+    // faint nebulosity blobs along the band
+    const neb = [];
+    for (let i = 0; i < 130; i++) {
+      const l = rand(0, TAU), b = gauss() * 0.09;
+      const { ra, dec } = toEq(l, b);
+      neb.push({ ra, dec, r: rand(30, 95), a: rand(0.015, 0.05) });
+    }
+    this.nebulae = neb;
+  },
+
+  project(ra, dec, t) {
+    const drift = 0.011 * MOTION;   // rad/s of sky rotation
+    let x = (((ra + t * drift) / TAU) % 1 + 1) % 1;
+    const y = (0.5 - dec / Math.PI);
+    return { x: x * W, y: y * H };
+  },
+
+  draw(t) {
+    // nebulosity first
+    for (const n of this.nebulae) {
+      const p = this.project(n.ra, n.dec, t);
+      const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, n.r);
+      g.addColorStop(0, `rgba(127,160,200,${n.a})`);
+      g.addColorStop(1, 'rgba(127,160,200,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(p.x, p.y, n.r, 0, TAU); ctx.fill();
+      // handle horizontal wrap for wide blobs
+      if (p.x < n.r) { ctx.beginPath(); ctx.arc(p.x + W, p.y, n.r, 0, TAU); ctx.fill(); }
+      if (p.x > W - n.r) { ctx.beginPath(); ctx.arc(p.x - W, p.y, n.r, 0, TAU); ctx.fill(); }
+    }
+    // stars
+    for (const s of this.stars) {
+      const p = this.project(s.ra, s.dec, t);
+      const twinkle = reduceMotion ? 1 : 0.82 + 0.18 * Math.sin(t * s.tws + s.tw);
+      const size = 0.4 + s.m * 1.9;
+      ctx.globalAlpha = (0.25 + s.m * 0.75) * twinkle;
+      ctx.fillStyle = s.c;
+      if (size > 1.4) {
+        ctx.beginPath(); ctx.arc(p.x, p.y, size * 0.62, 0, TAU); ctx.fill();
+      } else {
+        ctx.fillRect(p.x, p.y, size, size);
+      }
+    }
+    ctx.globalAlpha = 1;
+  },
+};
+
+/* ============================================================
+   SCENE 3 — Large-scale structure (synthetic cosmic web)
+   ============================================================ */
+const cosmicWeb = {
+  title: 'Large-Scale Structure',
+  detail: 'Synthetic cosmic web · nodes, filaments, voids',
+  pts: null,
+
+  init() {
+    // halo nodes
+    const nodes = [];
+    for (let i = 0; i < Math.round(110 * Math.sqrt(D)); i++) {
+      nodes.push({ x: rand(-1, 1), y: rand(-1, 1), z: rand(-1, 1), mass: Math.pow(Math.random(), 1.6) });
+    }
+    const pts = [];
+    // cluster cores
+    for (const nd of nodes) {
+      const count = 8 + Math.floor(nd.mass * 42);
+      const sigma = 0.018 + nd.mass * 0.03;
+      for (let i = 0; i < count; i++) {
+        pts.push({
+          x: nd.x + gauss() * sigma, y: nd.y + gauss() * sigma, z: nd.z + gauss() * sigma,
+          warm: nd.mass > 0.72, a: rand(0.25, 0.85),
+        });
+      }
+    }
+    // filaments: each node → its 2 nearest neighbors
+    for (const nd of nodes) {
+      const nbrs = nodes
+        .filter(o => o !== nd)
+        .map(o => ({ o, d: (o.x - nd.x) ** 2 + (o.y - nd.y) ** 2 + (o.z - nd.z) ** 2 }))
+        .sort((a, b) => a.d - b.d)
+        .slice(0, 2);
+      for (const { o } of nbrs) {
+        const segs = 26;
+        for (let i = 0; i < segs; i++) {
+          const f = (i + Math.random()) / segs;
+          const spread = 0.014 * Math.sin(f * Math.PI) * 3; // fatter mid-filament
+          pts.push({
+            x: nd.x + (o.x - nd.x) * f + gauss() * spread,
+            y: nd.y + (o.y - nd.y) * f + gauss() * spread,
+            z: nd.z + (o.z - nd.z) * f + gauss() * spread,
+            warm: false, a: rand(0.08, 0.4),
+          });
+        }
+      }
+    }
+    this.pts = pts;
+  },
+
+  draw(t) {
+    const cx = W / 2, cy = H / 2;
+    const scale = Math.min(W, H) * 0.44;
+    const yaw = t * 0.055 * MOTION, pitch = 0.42 + 0.07 * Math.sin(t * 0.021 * MOTION);
+    const cyw = Math.cos(yaw), syw = Math.sin(yaw);
+    const cpt = Math.cos(pitch), spt = Math.sin(pitch);
+    const CAM = 3.1;
+
+    for (const p of this.pts) {
+      // rotate: yaw about y, pitch about x
+      const x1 = p.x * cyw + p.z * syw;
+      const z1 = -p.x * syw + p.z * cyw;
+      const y2 = p.y * cpt - z1 * spt;
+      const z2 = p.y * spt + z1 * cpt;
+
+      const persp = CAM / (CAM + z2);
+      const sx = cx + x1 * scale * persp;
+      const sy = cy + y2 * scale * persp;
+
+      const depth = Math.max(0, Math.min(1, (1.4 - z2) / 2.8));
+      ctx.globalAlpha = p.a * (0.25 + 0.75 * depth);
+      ctx.fillStyle = p.warm ? '#C9A26B' : '#9FC3DE';
+      const s = (p.warm ? 1.7 : 1.05) * persp;
+      ctx.fillRect(sx - s / 2, sy - s / 2, s, s);
+    }
+    ctx.globalAlpha = 1;
+  },
+};
+
+/* ============================================================
+   Scene manager — fade through black
+   ============================================================ */
+const scenes = [orrery, starfield, cosmicWeb];
+scenes.forEach(s => s.init());
+
+const captionEl = document.getElementById('caption');
+const titleEl = captionEl.querySelector('.title');
+const detailEl = captionEl.querySelector('.detail');
+
+let current = CONFIG.scene !== null
+  ? Math.min(Math.max(CONFIG.scene, 0), scenes.length - 1) : 0;
+const sceneLocked = CONFIG.scene !== null;
+let phase = 'in';            // in → hold → out
+let phaseStart = performance.now() / 1000;
+let paused = false;
+let sceneClock = 0;          // per-scene time (drives motion), pausable
+let lastFrame = performance.now() / 1000;
+
+function setCaption(i) {
+  titleEl.textContent = scenes[i].title;
+  detailEl.textContent = scenes[i].detail;
+}
+setCaption(0);
+requestAnimationFrame(() => captionEl.classList.add('visible'));
+
+function advance(dir) {
+  current = (current + dir + scenes.length) % scenes.length;
+  phase = 'in';
+  phaseStart = performance.now() / 1000;
+  sceneClock = rand(0, 500);      // desynchronize scene starting states
+  captionEl.classList.remove('visible');
+  setCaption(current);
+  setTimeout(() => captionEl.classList.add('visible'), 400);
+  updateDots();
+}
+
+function envelope(now) {
+  const el = now - phaseStart;
+  if (phase === 'in') {
+    if (el >= FADE) { phase = 'hold'; phaseStart = now; return 1; }
+    return smooth(el / FADE);
+  }
+  if (phase === 'hold') {
+    if (!paused && !sceneLocked && el >= SCENE_HOLD) { phase = 'out'; phaseStart = now; }
+    return 1;
+  }
+  // out
+  if (el >= FADE) { advance(1); return 0; }
+  return 1 - smooth(el / FADE);
+}
+
+function frame() {
+  const now = performance.now() / 1000;
+  const dt = Math.min(now - lastFrame, 0.1);
+  lastFrame = now;
+  if (!paused) sceneClock += dt;
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, W, H);
+
+  const env = envelope(now);
+  if (env > 0.003) {
+    ctx.save();
+    ctx.globalAlpha = env;
+    scenes[current].draw(sceneClock);
+    ctx.restore();
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+/* ============================================================
+   Controls
+   ============================================================ */
+const controlsEl = document.getElementById('controls');
+const dotsEl = document.getElementById('dots');
+const pauseBtn = document.getElementById('pause');
+
+scenes.forEach((s, i) => {
+  const d = document.createElement('button');
+  d.className = 'dot';
+  d.setAttribute('role', 'tab');
+  d.setAttribute('aria-label', s.title);
+  d.addEventListener('click', () => { current = i - 1; advance(1); });
+  dotsEl.appendChild(d);
+});
+function updateDots() {
+  [...dotsEl.children].forEach((d, i) => d.classList.toggle('active', i === current));
+}
+updateDots();
+
+document.getElementById('prev').addEventListener('click', () => advance(-1));
+document.getElementById('next').addEventListener('click', () => advance(1));
+pauseBtn.addEventListener('click', togglePause);
+
+function togglePause() {
+  paused = !paused;
+  pauseBtn.textContent = paused ? '▶' : '❚❚';
+  pauseBtn.setAttribute('aria-label', paused ? 'Play' : 'Pause');
+}
+
+let hideTimer = null;
+function revealControls() {
+  controlsEl.classList.add('visible');
+  clearTimeout(hideTimer);
+  hideTimer = setTimeout(() => controlsEl.classList.remove('visible'), 2600);
+}
+window.addEventListener('mousemove', revealControls);
+window.addEventListener('touchstart', revealControls, { passive: true });
+
+window.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') { advance(1); revealControls(); }
+  else if (e.key === 'ArrowLeft') { advance(-1); revealControls(); }
+  else if (e.key === ' ') { e.preventDefault(); togglePause(); revealControls(); }
+});
+</script>
+</body>
+</html>
