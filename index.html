@@ -133,7 +133,7 @@
      1. Heliocentric — log-radial Keplerian orrery
      2. Local Sky — real-time horizon view
      3. Large-scale structure — SDSS redshift fan
-     4. Jupiter — orbital close-up on the Cassini global map
+     4. Planets — grand tour on real mission maps
    ============================================================ */
 
 const TAU = Math.PI * 2;
@@ -162,6 +162,7 @@ const CONFIG = {
   lat:      num('lat', 51.4779),            // observer latitude (deg, N+) — default Greenwich
   lon:      num('lon', 0),                  // observer longitude (deg, E+)
   callouts: Math.floor(num('callouts', 4)), // Local Sky: label the N closest bodies in frame
+  planet:   params.get('planet'),           // Planets: starting planet (name or 0-7)
 };
 
 const SCENE_HOLD = CONFIG.hold;
@@ -584,69 +585,168 @@ const gaiaCatalog = {
 gaiaCatalog.load();
 
 /* ============================================================
-   Planet surface maps (used by the planet close-up scene)
+   Planet surface maps (used by the planet tour scene)
    Real mission mosaics preprocessed by scripts/planet_textures.py
-   into data/planets/*.jpg (equirectangular, planetocentric
-   latitude). Falls back to a synthetic banded map offline/file://
-   — captioned honestly either way.
+   into data/planets/*.jpg (equirectangular; conventions recorded
+   per map below). Raw JPEG bytes are fetched once and kept; the
+   ~26 MB decoded RGBA is held for at most 3 planets at a time.
+   Falls back to synthetic banded maps offline/file:// — captioned
+   honestly either way.
+
+   lonLeft/texDir describe each map's x axis IN THE SAME longitude
+   convention as the engine's Horizons-calibrated central meridian
+   for that planet (see PLANETS.conv): map x-fraction
+   u = frac((lon - lonLeft) * texDir / 360).
    ============================================================ */
 const planetMaps = {
-  jupiter: null,   // { source, synthetic, w, h, data: Uint8ClampedArray }
+  registry: {
+    mercury: {
+      file: 'mercury.jpg', source: 'MESSENGER enh. color',
+      lonLeft: 0, texDir: -1,     // map is 0..360°E left→right; engine CM is west-positive
+      synth: { amp: 0.30, freq: 23, stops: [
+        [90, 122, 120, 118], [40, 140, 134, 128], [0, 152, 142, 132],
+        [-40, 138, 132, 126], [-90, 120, 118, 116]] },
+    },
+    venus: {
+      file: 'venus.jpg', source: 'Magellan radar mosaic',
+      lonLeft: 180, texDir: 1,    // east-positive, Greenwich-analog centered
+      synth: { amp: 0.06, freq: 5, stops: [
+        [90, 222, 194, 148], [30, 236, 204, 152], [0, 240, 210, 158],
+        [-45, 228, 198, 148], [-90, 218, 190, 144]] },
+    },
+    earth: {
+      file: 'earth.jpg', night: 'earth_night.jpg',
+      source: 'Blue Marble · VIIRS night',
+      lonLeft: 180, texDir: 1,    // east-positive, Greenwich centered
+      synth: { amp: 0.08, freq: 7, stops: [
+        [90, 232, 236, 240], [64, 44, 76, 112], [0, 36, 68, 106],
+        [-58, 40, 72, 110], [-72, 228, 232, 238], [-90, 238, 240, 244]] },
+    },
+    mars: {
+      file: 'mars.jpg', source: 'Viking mosaic',
+      lonLeft: 180, texDir: -1,   // map east-positive centered 0°E; engine CM west-positive
+      synth: { amp: 0.22, freq: 11, stops: [
+        [90, 226, 214, 202], [74, 198, 140, 98], [20, 188, 122, 76],
+        [-20, 172, 110, 68], [-70, 192, 134, 94], [-90, 228, 218, 208]] },
+    },
+    jupiter: {
+      file: 'jupiter.jpg', source: 'Cassini map (Dec 2000)',
+      lonLeft: 180, texDir: -1,   // System III west, 180 at left edge (PIA07782_fig1)
+      grs: true,
+      synth: { amp: 0.035, freq: 3, stops: [
+        [90, 152, 152, 150], [62, 166, 158, 146], [45, 184, 170, 152],
+        [33, 202, 188, 164], [27, 178, 155, 125], [19, 224, 216, 202],
+        [9, 196, 152, 110], [6, 228, 220, 205], [0, 236, 230, 218],
+        [-7, 228, 218, 202], [-11, 202, 158, 118], [-20, 214, 198, 178],
+        [-28, 192, 176, 156], [-45, 176, 164, 150], [-62, 164, 158, 148],
+        [-90, 152, 152, 150]] },
+    },
+    saturn: {
+      file: 'saturn.jpg', source: 'Cassini map (Aug 2011)',
+      lonLeft: 0, texDir: -1,     // System III west, 360°W at left edge (PDS4 label)
+      synth: { amp: 0.05, freq: 4, stops: [
+        [90, 168, 158, 138], [60, 198, 184, 154], [35, 216, 200, 164],
+        [10, 228, 212, 172], [-10, 224, 206, 166], [-40, 206, 190, 156],
+        [-70, 186, 172, 146], [-90, 166, 156, 138]] },
+    },
+    uranus: {
+      file: 'uranus.jpg', source: 'HST OPAL (Oct 2025)',
+      lonLeft: 0, texDir: -1,     // OPAL: 0°E at right edge, increasing leftward
+      synth: { amp: 0.02, freq: 2, stops: [
+        [90, 238, 240, 222], [45, 198, 228, 224], [0, 170, 216, 214],
+        [-90, 152, 204, 206]] },
+    },
+    neptune: {
+      file: 'neptune.jpg', source: 'HST OPAL (Aug 2025)',
+      lonLeft: 0, texDir: -1,     // OPAL: west longitude, 360 at left edge
+      synth: { amp: 0.05, freq: 4, stops: [
+        [90, 98, 166, 152], [30, 112, 192, 172], [-20, 106, 184, 166],
+        [-60, 98, 170, 154], [-90, 90, 158, 146]] },
+    },
+  },
+  decoded: {}, pending: {}, blobs: {}, _touch: 0,
 
-  async load(name) {
-    try {
-      const res = await fetch(`data/planets/${name}.jpg`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const bmp = await createImageBitmap(await res.blob());
+  /* kick off (or re-kick) load of one map; safe to call every frame */
+  request(key) {
+    if (this.decoded[key] || this.pending[key]) return;
+    this.pending[key] = true;
+    this._load(key).catch(e => {
+      console.warn(`planet map ${key} failed, synthesizing:`, e);
+      this._store(key, this.synthesize(key));
+    });
+  },
+
+  async _load(key) {
+    const reg = this.registry[key];
+    const grab = async (file) => {
+      if (!this.blobs[file]) {                  // fetched once, kept compressed
+        const res = await fetch(`data/planets/${file}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        this.blobs[file] = await res.blob();
+      }
+      const bmp = await createImageBitmap(this.blobs[file]);
       const c = document.createElement('canvas');
       c.width = bmp.width; c.height = bmp.height;
       const g2 = c.getContext('2d', { willReadFrequently: true });
       g2.drawImage(bmp, 0, 0);
-      this[name] = {
-        source: 'Cassini map (Dec 2000)', synthetic: false,
-        w: bmp.width, h: bmp.height,
-        data: g2.getImageData(0, 0, bmp.width, bmp.height).data,
-      };
-    } catch (e) {
-      console.warn(`planet map ${name} failed, synthesizing:`, e);
-      this[name] = this.synthesize(name);
+      return { w: bmp.width, h: bmp.height,
+               data: g2.getImageData(0, 0, bmp.width, bmp.height).data };
+    };
+    const day = await grab(reg.file);
+    const entry = { source: reg.source, synthetic: false,
+                    w: day.w, h: day.h, data: day.data };
+    if (reg.night) {
+      const nt = await grab(reg.night);
+      if (nt.w === day.w && nt.h === day.h) entry.night = nt.data;
+    }
+    this._store(key, entry);
+  },
+
+  _store(key, entry) {
+    entry.lastUse = ++this._touch;
+    this.decoded[key] = entry;
+    delete this.pending[key];
+    const keys = Object.keys(this.decoded);
+    if (keys.length > 3) {                       // ~26 MB RGBA each
+      keys.sort((a, b) => this.decoded[a].lastUse - this.decoded[b].lastUse);
+      delete this.decoded[keys[0]];              // re-decoded from blob if revisited
     }
   },
 
-  /* offline fallback: banded disk at roughly Jupiter's real zonal-band
-     latitudes; clearly captioned as synthetic */
-  synthesize() {
+  peek(key) {
+    const e = this.decoded[key];
+    if (e) e.lastUse = ++this._touch;
+    return e || null;
+  },
+
+  /* offline fallback: banded map at roughly real zonal-band latitudes;
+     clearly captioned as synthetic */
+  synthesize(key) {
+    const reg = this.registry[key], sy = reg.synth;
     const w = 1024, h = 512, data = new Uint8ClampedArray(w * h * 4);
-    const stops = [   // [planetocentric lat, r, g, b] top → bottom
-      [ 90, 152, 152, 150], [ 62, 166, 158, 146], [ 45, 184, 170, 152],
-      [ 33, 202, 188, 164], [ 27, 178, 155, 125], [ 19, 224, 216, 202],
-      [  9, 196, 152, 110], [  6, 228, 220, 205], [  0, 236, 230, 218],
-      [ -7, 228, 218, 202], [-11, 202, 158, 118], [-20, 214, 198, 178],
-      [-28, 192, 176, 156], [-45, 176, 164, 150], [-62, 164, 158, 148],
-      [-90, 152, 152, 150],
-    ];
+    const fr = sy.freq;
     const noise = (u, lat) =>
-      Math.sin(u * TAU * 3 + lat * 0.23 + Math.sin(u * TAU * 7 + lat * 0.11) * 1.3) * 0.6 +
-      Math.sin(u * TAU * 11 + lat * 0.07 + 2.1) * 0.4;
+      Math.sin(u * TAU * fr + lat * 0.23 + Math.sin(u * TAU * (fr * 2 + 1) + lat * 0.11) * 1.3) * 0.6 +
+      Math.sin(u * TAU * (fr * 3 + 2) + lat * 0.07 + 2.1) * 0.4;
     for (let py = 0; py < h; py++) {
       const lat = 90 - (py + 0.5) / h * 180;
       let i = 0;
-      while (i < stops.length - 2 && lat < stops[i + 1][0]) i++;
-      const [l0, ...c0] = stops[i], [l1, ...c1] = stops[i + 1];
-      const fr = smooth(Math.max(0, Math.min(1, (l0 - lat) / (l0 - l1))));
+      while (i < sy.stops.length - 2 && lat < sy.stops[i + 1][0]) i++;
+      const [l0, ...c0] = sy.stops[i], [l1, ...c1] = sy.stops[i + 1];
+      const f = smooth(Math.max(0, Math.min(1, (l0 - lat) / (l0 - l1 || 1))));
       for (let px = 0; px < w; px++) {
-        const lonU = px / w;
-        // wavy band edges + longitudinal mottling
-        const n = 1 + 0.035 * noise(lonU, lat);
-        let r = (c0[0] + (c1[0] - c0[0]) * fr) * n;
-        let g = (c0[1] + (c1[1] - c0[1]) * fr) * n;
-        let b = (c0[2] + (c1[2] - c0[2]) * fr) * n;
-        // Great Red Spot stand-in at its real latitude (~22°S)
-        let dl = ((lonU - 0.35) % 1 + 1) % 1; if (dl > 0.5) dl -= 1;
-        const e = (dl * 360 / 11) ** 2 + ((lat + 22) / 4.5) ** 2;
-        if (e < 1) {
-          const m = smooth(1 - e);
-          r = r + (212 - r) * m; g = g + (142 - g) * m; b = b + (104 - b) * m;
+        const u = px / w;
+        const n = 1 + sy.amp * noise(u, lat) + sy.amp * 0.5 * noise(u * 5.31, lat * 2.7);
+        let r = (c0[0] + (c1[0] - c0[0]) * f) * n;
+        let g = (c0[1] + (c1[1] - c0[1]) * f) * n;
+        let b = (c0[2] + (c1[2] - c0[2]) * f) * n;
+        if (reg.grs) {   // Great Red Spot stand-in at its real latitude
+          let dl = ((u - 0.35) % 1 + 1) % 1; if (dl > 0.5) dl -= 1;
+          const e2 = (dl * 360 / 11) ** 2 + ((lat + 22) / 4.5) ** 2;
+          if (e2 < 1) {
+            const m = smooth(1 - e2);
+            r += (212 - r) * m; g += (142 - g) * m; b += (104 - b) * m;
+          }
         }
         const o = (py * w + px) * 4;
         data[o] = r; data[o + 1] = g; data[o + 2] = b; data[o + 3] = 255;
@@ -655,7 +755,6 @@ const planetMaps = {
     return { source: 'synthetic bands', synthetic: true, w, h, data };
   },
 };
-planetMaps.load('jupiter');
 
 /* ============================================================
    SCENE 2 — Local Sky (real-time horizon view)
@@ -1164,100 +1263,205 @@ const cosmicWeb = {
 };
 
 /* ============================================================
-   SCENE 4 — Jupiter (orbital close-up)
-   The real planet as it stands now: Cassini global color map
-   wrapped on an oblate sphere, rotating at the true System III
-   rate from the IAU rotation model (central meridian verified
-   against JPL Horizons to ±0.1°, 2000–2026), lit by the sun at
-   its true phase angle, Galilean moons from Meeus's theory
-   (verified against Horizons to ~0.05 R_J), real Gaia field
-   behind at Jupiter's current geocentric direction. Camera up is
-   Jupiter's IAU pole; the camera's closeness is the one fiction.
-   Time runs at 1 s = 2 min so the rotation is visible; moon
-   orbital radii are compressed (r^0.30 beyond 1.4 R_J — same
-   grammar as the orrery's log-radial mapping) so all four fit
-   in frame; contact with the limb stays exact.
+   SCENE 4 — Planets (grand tour)
+   Every planet as it stands now: real mission maps wrapped on
+   oblate spheres, rotating on IAU rotation models (central
+   meridians verified against JPL Horizons to ≤0.3°, 2000–2026),
+   lit by the sun at true phase (Venus shows its real crescent),
+   real Gaia field behind each planet's true geocentric direction,
+   camera up = each planet's IAU pole. Saturn carries its rings at
+   real radii and the true (currently near-edge-on) opening;
+   Jupiter its Horizons-verified Galilean moons; Earth is seen
+   from over the configured ?lat/lon with VIIRS night lights on
+   the dark side and the Moon alongside.
+
+   The tour dwells on each planet, then swings the camera across
+   the real sky to the next planet's actual direction — the
+   impossible speed of that camera is the scene's one licensed
+   fiction. Time runs at 1 s = 2 min so rotations are visible;
+   moon orbital radii are compressed beyond 1.4 planet radii
+   (limb contact stays exact). Both captioned.
    ============================================================ */
 const planetView = {
-  title: 'Jupiter',
-  detail: 'Ephemeris · awaiting map',
+  title: 'Planets',
+  detail: 'Ephemeris · awaiting maps',
   SPEED: 120,                    // ephemeris seconds per display second
   FOV_H: 36 * Math.PI / 180,
-  FLAT: 0.06487,                 // Jupiter oblateness
+  TRANSIT: 7,                    // seconds of camera swing between planets
+  DWELL: 75,                     // set from CONFIG in init()
   KNEE: 1.4, GAMMA: 0.30,        // moon radial compression (true inside knee)
-  // IAU J2000 pole of Jupiter (RA 268.057°, Dec 64.495°), equatorial frame
-  POLE: (() => {
-    const D = Math.PI / 180, a = 268.056595 * D, d = 64.495303 * D, c = Math.cos(d);
-    return [c * Math.cos(a), c * Math.sin(a), Math.sin(d)];
-  })(),
-  MOONS: [
+
+  /* IAU 2015 poles and rotation models. W0 includes a per-planet offset
+     fitted against Horizons sub-observer longitudes (2000–2026 yearly;
+     residual spread ≤0.3°, see scripts history). conv: +1 → CM = W − θ
+     (west-positive longitudes, e.g. Jupiter Sys III); −1 → CM = θ − W
+     (east-positive, e.g. Venus/Uranus). Earth is a special case: the
+     camera hovers inertially over ?lat/lon and the sub-camera east
+     longitude comes straight from GMST. */
+  PLANETS: [
+    { key: 'mercury', name: 'MERCURY', oi: 0, flat: 0,
+      pole: [281.0103, 61.4155], W0: 329.602, Wd: 6.1385108, conv: 1, phase: true },
+    { key: 'venus', name: 'VENUS', oi: 1, flat: 0,
+      pole: [272.76, 67.16], W0: 160.203, Wd: -1.4813688, conv: -1, phase: true },
+    { key: 'earth', name: 'EARTH', oi: 2, flat: 0.00335,
+      zenith: true, conv: -1, moons: 'moon' },
+    { key: 'mars', name: 'MARS', oi: 3, flat: 0.00589,
+      pole: [317.68143, 52.88650], W0: 176.896, Wd: 350.89198226, conv: 1 },
+    { key: 'jupiter', name: 'JUPITER', oi: 4, flat: 0.06487, cmLabel: 'CM III',
+      pole: [268.056595, 64.495303], W0: 285.64, Wd: 870.5360000, conv: 1,
+      moons: 'galilean' },
+    { key: 'saturn', name: 'SATURN', oi: 5, flat: 0.09796,
+      pole: [40.589, 83.537], W0: 39.421, Wd: 810.7939024, conv: 1, rings: true },
+    { key: 'uranus', name: 'URANUS', oi: 6, flat: 0.0229,
+      pole: [257.311, -15.175], W0: 203.427, Wd: -501.1600928, conv: -1 },
+    { key: 'neptune', name: 'NEPTUNE', oi: 7, flat: 0.0171,
+      pole: [299.36, 43.46], W0: 250.271, Wd: 541.1397757, conv: 1 },
+  ],
+
+  GALILEAN: [
     { name: 'IO',       c: '#D8C08A', s: 2.0 },
     { name: 'EUROPA',   c: '#E6EAEE', s: 1.8 },
     { name: 'GANYMEDE', c: '#C8C4BC', s: 2.6 },
     { name: 'CALLISTO', c: '#A89E90', s: 2.4 },
   ],
-  tAnchor: 0, jdAnchor: 0, _cap: '',
-  _geom: null, _sphC: null, _lastXoff: -1, _shadeJd: -1e9,
+  MOONSPEC: { name: 'MOON', c: '#C9CDD3', s: 2.2 },
+
+  /* Saturn's main rings, real radii in Saturn equatorial radii (60,268 km):
+     [inner, outer, opacity]. Radii exact; opacities approximate optical
+     appearance. */
+  RINGS: [
+    [1.239, 1.527, 0.20],   // C
+    [1.527, 1.951, 0.62],   // B
+    [1.951, 2.027, 0.05],   // Cassini Division
+    [2.027, 2.214, 0.42],   // A (inside Encke)
+    [2.214, 2.220, 0.08],   // Encke gap
+    [2.220, 2.269, 0.42],   // A (outside Encke)
+    [2.320, 2.332, 0.10],   // F
+  ],
+
+  tAnchor: 0, jdAnchor: 0, _tour: -1, _cap: '', _title: '',
+  _globes: {}, _touch: 0, _earthSeg: null, _earthF: null,
+
+  init() {
+    const DEG = Math.PI / 180;
+    for (const p of this.PLANETS) {
+      if (p.pole) {
+        const a = p.pole[0] * DEG, d = p.pole[1] * DEG, c = Math.cos(d);
+        p.P = [c * Math.cos(a), c * Math.sin(a), Math.sin(d)];
+      } else {
+        p.P = [0, 0, 1];
+      }
+      p.orr = orrery.planets[p.oi];
+    }
+    this.DWELL = params.has('dwell')
+      ? Math.max(10, num('dwell', 75))
+      : CONFIG.scene !== null ? 75
+      : Math.max(12, Math.min(150, (CONFIG.hold - 2 * CONFIG.fade) / 2 - this.TRANSIT));
+    if (CONFIG.planet !== null && CONFIG.planet !== undefined) {
+      const byName = this.PLANETS.findIndex(p => p.key === String(CONFIG.planet).toLowerCase());
+      const idx = byName >= 0 ? byName : Math.floor(num('planet', 0));
+      this._tour = ((idx % this.PLANETS.length) + this.PLANETS.length) % this.PLANETS.length - 1;
+    }
+  },
+  onResize() { this._globes = {}; },
 
   enter(tClock) {
-    this.tAnchor = tClock;
+    this.tAnchor = tClock - num('t0', 0);   // t0: debug scene-clock offset
     this.jdAnchor = Date.now() / 86400000 + 2440587.5;
-    this._cap = '';
-    this._geom = null;             // re-anchor disk tilt (De) on each entry
+    this._tour = (this._tour + 1) % this.PLANETS.length;
+    this._cap = ''; this._title = '';
+    this._earthSeg = null; this._earthF = null;
   },
-  init() {},
-  onResize() { this._geom = null; },
 
-  /* Jupiter system at a JD — camera basis (from Earth, pole-up), System III
-     central meridian, sub-Earth planetocentric latitude, sunlight direction,
-     Galilean moon positions. CM III: IAU rotation model W = 285.64 +
-     870.536 d referenced to the equator node, light-time corrected; the
-     epoch constant folds in a +0.69° offset calibrated against Horizons
-     (residual < ±0.1° over 2000–2026). Moons: Meeus, Astronomical
-     Algorithms ch. 44 (low accuracy), X east→west & Y south→north in the
-     pole-up camera frame, in front of the disk when cos u > 0 — all four
-     verified against Horizons. */
-  system(jd) {
+  _eq(x, y, z) {
+    const DEG = Math.PI / 180;
+    const ce = Math.cos(23.43928 * DEG), se = Math.sin(23.43928 * DEG);
+    return [x, y * ce - z * se, y * se + z * ce];
+  },
+  _gmst(jd) {
+    return (((280.46061837 + 360.98564736629 * (jd - 2451545.0)) % 360) + 360) % 360;
+  },
+  _norm(v) {
+    const n = Math.hypot(v[0], v[1], v[2]);
+    return [v[0] / n, v[1] / n, v[2] / n];
+  },
+  /* great-circle interpolation between unit vectors; detours via a
+     waypoint when nearly antipodal */
+  _slerp(a, b, t) {
+    const d = Math.max(-1, Math.min(1, a[0] * b[0] + a[1] * b[1] + a[2] * b[2]));
+    const ang = Math.acos(d);
+    if (ang < 1e-4) return this._norm([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]);
+    if (ang > Math.PI - 0.05) {   // near-antipodal: detour via a waypoint
+      const mid = this._norm([a[1], -a[0], 0.001]);
+      return t < 0.5 ? this._slerp(a, mid, t * 2) : this._slerp(mid, b, t * 2 - 1);
+    }
+    const sa = Math.sin(ang);
+    const wa = Math.sin((1 - t) * ang) / sa, wb = Math.sin(t * ang) / sa;
+    return this._norm([a[0] * wa + b[0] * wb, a[1] * wa + b[1] * wb, a[2] * wa + b[2] * wb]);
+  },
+
+  /* full state of one planet at a JD: camera basis (from Earth — or the
+     configured zenith for Earth itself — pole-up), central meridian,
+     sub-Earth planetocentric latitude, sun direction in camera coords,
+     ring-plane sun elevation, moons */
+  system(jd, p, frozenF) {
     const DEG = Math.PI / 180, T = (jd - 2451545.0) / 36525;
     const e3 = orrery.helioEcl(orrery.planets[2], T);
-    const j3 = orrery.helioEcl(orrery.planets[4], T);
-    const ce = Math.cos(23.43928 * DEG), se = Math.sin(23.43928 * DEG);
-    const eq = (x, y, z) => [x, y * ce - z * se, y * se + z * ce];
-
-    const g = eq(j3.x - e3.x, j3.y - e3.y, j3.z - e3.z);
-    const dist = Math.hypot(g[0], g[1], g[2]);
-    const F = [g[0] / dist, g[1] / dist, g[2] / dist];         // camera forward
-    const P = this.POLE;
+    let F, dist, h3;
+    if (p.zenith) {
+      h3 = e3;
+      if (frozenF) { F = frozenF; }
+      else {
+        const lst = (this._gmst(jd) + CONFIG.lon) * DEG, phi = CONFIG.lat * DEG;
+        const cp = Math.cos(phi);
+        F = [-cp * Math.cos(lst), -cp * Math.sin(lst), -Math.sin(phi)];  // looking down
+      }
+      dist = 0;
+    } else {
+      h3 = orrery.helioEcl(p.orr, T);
+      const g = this._eq(h3.x - e3.x, h3.y - e3.y, h3.z - e3.z);
+      dist = Math.hypot(g[0], g[1], g[2]);
+      F = [g[0] / dist, g[1] / dist, g[2] / dist];
+    }
+    const P = p.P;
     const dp = P[0] * F[0] + P[1] * F[1] + P[2] * F[2];
-    let U = [P[0] - dp * F[0], P[1] - dp * F[1], P[2] - dp * F[2]];
-    const un = Math.hypot(U[0], U[1], U[2]);
-    U = [U[0] / un, U[1] / un, U[2] / un];                     // screen up
-    const Rt = [F[1] * U[2] - F[2] * U[1],                     // screen right
-                F[2] * U[0] - F[0] * U[2],
-                F[0] * U[1] - F[1] * U[0]];
-    const De = Math.asin(-dp);          // sub-Earth planetocentric latitude
+    const U = this._norm([P[0] - dp * F[0], P[1] - dp * F[1], P[2] - dp * F[2]]);
+    const Rt = [F[1] * U[2] - F[2] * U[1], F[2] * U[0] - F[0] * U[2], F[0] * U[1] - F[1] * U[0]];
+    const De = Math.asin(Math.max(-1, Math.min(1, -dp)));
 
-    // sunlight direction at Jupiter, camera coords (z toward viewer)
-    const rj = Math.hypot(j3.x, j3.y, j3.z);
-    const s = eq(-j3.x / rj, -j3.y / rj, -j3.z / rj);
+    const rh = Math.hypot(h3.x, h3.y, h3.z) || 1;
+    const s = this._norm(this._eq(-h3.x / rh, -h3.y / rh, -h3.z / rh));
     const sun = [s[0] * Rt[0] + s[1] * Rt[1] + s[2] * Rt[2],
                  s[0] * U[0] + s[1] * U[1] + s[2] * U[2],
                  -(s[0] * F[0] + s[1] * F[1] + s[2] * F[2])];
 
-    // System III central meridian via the pole's equator node
-    const node = [-P[1], P[0], 0];
-    const nn = Math.hypot(node[0], node[1]);
-    node[0] /= nn; node[1] /= nn;
-    const m = [P[1] * node[2] - P[2] * node[1],
-               P[2] * node[0] - P[0] * node[2],
-               P[0] * node[1] - P[1] * node[0]];
-    const th = Math.atan2(-(F[0] * m[0] + F[1] * m[1] + F[2] * m[2]),
-                          -(F[0] * node[0] + F[1] * node[1] + F[2] * node[2])) / DEG;
-    const dlt = jd - 2451545.0 - dist * 0.0057755183;   // light-time corrected
-    const cm3 = (((285.64 + 870.5360000 * dlt - th) % 360) + 360) % 360;
+    let cm;
+    if (p.zenith) {
+      cm = ((Math.atan2(-F[1], -F[0]) / DEG - this._gmst(jd)) % 360 + 360) % 360;
+    } else {
+      const node = this._norm([-P[1], P[0], 0]);
+      const m = [P[1] * node[2] - P[2] * node[1],
+                 P[2] * node[0] - P[0] * node[2],
+                 P[0] * node[1] - P[1] * node[0]];
+      const th = Math.atan2(-(F[0] * m[0] + F[1] * m[1] + F[2] * m[2]),
+                            -(F[0] * node[0] + F[1] * node[1] + F[2] * node[2])) / DEG;
+      const dlt = jd - 2451545.0 - dist * 0.0057755183;   // light-time corrected
+      cm = ((p.conv * (p.W0 + p.Wd * dlt - th)) % 360 + 360) % 360;
+    }
 
-    // Galilean moons (Meeus low accuracy; internally consistent series)
-    const d = jd - 2451545.0;
+    const out = { F, U, Rt, De, sun, cm, dist, h3 };
+    if (p.rings) out.Ds = Math.asin(Math.max(-1, Math.min(1, s[0] * P[0] + s[1] * P[1] + s[2] * P[2])));
+    if (p.moons === 'galilean') out.moons = this._galilean(jd, De);
+    else if (p.moons === 'moon') out.moons = this._earthMoon(T, F, Rt, U);
+    return out;
+  },
+
+  /* Galilean moons (Meeus, Astronomical Algorithms ch. 44, low accuracy).
+     X + toward screen right, Y + toward screen up (pole-up camera), in
+     Jupiter equatorial radii; in front of the disk when cos u > 0 —
+     verified against JPL Horizons at multiple epochs to ~0.05 R_J. */
+  _galilean(jd, De) {
+    const DEG = Math.PI / 180, d = jd - 2451545.0;
     const V = (172.74 + 0.00111588 * d) * DEG;
     const M = (357.529 + 0.9856003 * d) * DEG;
     const N = (20.020 + 0.0830853 * d + 0.329 * Math.sin(V)) * DEG;
@@ -1273,11 +1477,11 @@ const planetView = {
     const u = [
       (163.8069 + 203.4058646 * dd) * DEG + psi - B,
       (358.4140 + 101.2916335 * dd) * DEG + psi - B,
-      (  5.7176 +  50.2345180 * dd) * DEG + psi - B,
-      (224.8092 +  21.4879800 * dd) * DEG + psi - B,
+      (5.7176 + 50.2345180 * dd) * DEG + psi - B,
+      (224.8092 + 21.4879800 * dd) * DEG + psi - B,
     ];
     const G = (331.18 + 50.310482 * dd) * DEG;
-    const H = ( 87.40 + 21.569231 * dd) * DEG;
+    const H = (87.40 + 21.569231 * dd) * DEG;
     const uc = [
       u[0] + 0.473 * DEG * Math.sin(2 * (u[0] - u[1])),
       u[1] + 1.065 * DEG * Math.sin(2 * (u[1] - u[2])),
@@ -1285,26 +1489,72 @@ const planetView = {
       u[3] + 0.843 * DEG * Math.sin(H),
     ];
     const rr = [
-      5.9057  - 0.0244 * Math.cos(2 * (u[0] - u[1])),
-      9.3966  - 0.0882 * Math.cos(2 * (u[1] - u[2])),
+      5.9057 - 0.0244 * Math.cos(2 * (u[0] - u[1])),
+      9.3966 - 0.0882 * Math.cos(2 * (u[1] - u[2])),
       14.9883 - 0.0216 * Math.cos(G),
       26.3627 - 0.1939 * Math.cos(H),
     ];
     const sDe = Math.sin(De);
-    const moons = uc.map((ui, k) => ({
-      X: rr[k] * Math.sin(ui),                 // R_J, + toward screen right
-      Y: -rr[k] * Math.cos(ui) * sDe,          // R_J, + toward screen up
+    return uc.map((ui, k) => ({
+      X: rr[k] * Math.sin(ui),
+      Y: -rr[k] * Math.cos(ui) * sDe,
       front: Math.cos(ui) > 0,
+      spec: this.GALILEAN[k],
     }));
-
-    return { F, U, Rt, De, sun, cm3, dist, moons };
   },
 
-  /* one-time per resolution/tilt: per-pixel texture and shading LUTs for
-     the orthographic oblate sphere */
-  buildGeom(S, map, De) {
-    const b = 1 - this.FLAT, Req = S / 2 - 1.5, c = S / 2;
+  /* the Moon, geocentric, from the same low-precision lunar theory as the
+     Local Sky scene; position vector in Earth radii projected into the
+     camera frame */
+  _earthMoon(T, F, Rt, U) {
+    const DEG = Math.PI / 180;
+    const S = (a, b) => Math.sin((a + b * T) * DEG);
+    const C = (a, b) => Math.cos((a + b * T) * DEG);
+    const lam = (218.32 + 481267.883 * T
+      + 6.29 * S(134.9, 477198.85) - 1.27 * S(259.2, -413335.38)
+      + 0.66 * S(235.7, 890534.23) + 0.21 * S(269.9, 954397.70)
+      - 0.19 * S(357.5, 35999.05) - 0.11 * S(186.6, 966404.05)) * DEG;
+    const bet = (5.13 * S(93.3, 483202.03) + 0.28 * S(228.2, 960400.87)
+      - 0.28 * S(318.3, 6003.18) - 0.17 * S(217.6, -407332.20)) * DEG;
+    const par = (0.9508
+      + 0.0518 * C(134.9, 477198.85) + 0.0095 * C(259.2, -413335.38)
+      + 0.0078 * C(235.7, 890534.23) + 0.0028 * C(269.9, 954397.70)) * DEG;
+    const dR = 1 / Math.sin(par);           // distance in Earth radii
+    const cb = Math.cos(bet);
+    const v = this._eq(cb * Math.cos(lam) * dR, cb * Math.sin(lam) * dR, Math.sin(bet) * dR);
+    return [{
+      X: v[0] * Rt[0] + v[1] * Rt[1] + v[2] * Rt[2],
+      Y: v[0] * U[0] + v[1] * U[1] + v[2] * U[2],
+      front: (v[0] * F[0] + v[1] * F[1] + v[2] * F[2]) < 0,
+      spec: this.MOONSPEC,
+    }];
+  },
+
+  /* ---------- globe renderer (per-planet cached state) ---------- */
+
+  _globe(key) {
+    let g = this._globes[key];
+    if (!g) {
+      const canvas = document.createElement('canvas');
+      g = this._globes[key] = { canvas, ctx2: canvas.getContext('2d'),
+                                geom: null, shadeJd: -1e9, lastXoff: -1 };
+      const keys = Object.keys(this._globes);
+      if (keys.length > 3) {
+        keys.sort((a, b) => (this._globes[a].lastUse || 0) - (this._globes[b].lastUse || 0));
+        if (keys[0] !== key) delete this._globes[keys[0]];
+      }
+    }
+    g.lastUse = ++this._touch;
+    return g;
+  },
+
+  /* per-pixel LUTs for the orthographic oblate sphere: texture row, texel
+     offset from the central meridian, lighting normal, feathered alpha */
+  buildGeom(g, S, map, p, De) {
+    const reg = planetMaps.registry[p.key];
+    const b = 1 - p.flat, Req = S / 2 - 1.5, c = S / 2;
     const TW = map.w, TH = map.h;
+    const k2 = -p.conv * reg.texDir;      // dλ (screen-right +) → texel direction
     const cD = Math.cos(De), sD = Math.sin(De);
     const cap = Math.ceil(Math.PI / 4 * S * S) + S * 4;
     const outIdx = new Uint32Array(cap), rowBase = new Uint32Array(cap);
@@ -1318,15 +1568,15 @@ const planetView = {
         const r2 = X * X + Yu * Yu;
         if (r2 >= 1) continue;
         const Z = Math.sqrt(1 - r2);
-        const yp = Yu * cD + Z * sD;                       // planet frame
+        const yp = Yu * cD + Z * sD;                          // planet frame
         const zp = -Yu * sD + Z * cD;
-        const latC = Math.atan2(b * yp, Math.hypot(X, zp));  // planetocentric
-        const dLon = Math.atan2(X, zp);                    // 0 at CM, + right
+        const latC = Math.atan2(b * yp, Math.hypot(X, zp));   // planetocentric
+        const dLon = Math.atan2(X, zp);                       // 0 at CM, + right
         let row = Math.floor((0.5 - latC / Math.PI) * TH);
         row = Math.max(0, Math.min(TH - 1, row));
         outIdx[n] = (py * S + px) * 4;
         rowBase[n] = row * TW;
-        texXq[n] = ((Math.round(dLon / TAU * TW) % TW) + TW) % TW;
+        texXq[n] = ((Math.round(k2 * dLon / TAU * TW) % TW) + TW) % TW;
         alpha[n] = Math.min(1, (1 - Math.sqrt(r2)) * Req * 0.8) * 255;
         nx[n] = X; ny[n] = Yu; nz[n] = Z;
         n++;
@@ -1334,152 +1584,378 @@ const planetView = {
     }
     const img = new ImageData(S, S);
     for (let k = 0; k < n; k++) img.data[outIdx[k] + 3] = alpha[k];
-    this._sphC = document.createElement('canvas');
-    this._sphC.width = this._sphC.height = S;
-    this._geom = { S, n, outIdx, rowBase, texXq, nx, ny, nz,
-                   shade: new Uint8Array(n), img, De, tex: map, TW };
-    this._shadeJd = -1e9;
-    this._lastXoff = -1;
+    g.canvas.width = g.canvas.height = S;
+    g.geom = { S, n, outIdx, rowBase, texXq, nx, ny, nz, img,
+               shade: new Uint8Array(n), nlit: map.night ? new Uint8Array(n) : null,
+               De, flat: p.flat, tex: map, TW };
+    g.shadeJd = -1e9;
+    g.lastXoff = -1;
   },
 
-  /* limb darkening × terminator, from the true sun direction; the phase
-     angle drifts over ephemeris days, so this recomputes rarely */
-  buildShade(sun) {
-    const G2 = this._geom;
+  /* limb darkening × terminator from the true sun direction; recomputed
+     when the phase geometry has drifted (fast for Mercury/Venus) */
+  buildShade(g, sun) {
+    const G2 = g.geom;
     for (let k = 0; k < G2.n; k++) {
       const mu = G2.nz[k];
       const lit = G2.nx[k] * sun[0] + G2.ny[k] * sun[1] + mu * sun[2];
       let tf = (lit + 0.015) / 0.10;
       tf = tf < 0 ? 0 : tf > 1 ? 1 : tf;
-      G2.shade[k] = 255 * (0.35 + 0.65 * Math.pow(mu, 0.6)) * smooth(tf);
+      tf = smooth(tf);
+      G2.shade[k] = 255 * (0.35 + 0.65 * Math.pow(mu, 0.6)) * tf;
+      if (G2.nlit) G2.nlit[k] = (1 - tf) * 218;    // night-lights weight (×0.85)
     }
-    this._lastXoff = -1;   // force sphere repaint
+    g.lastXoff = -1;   // force repaint
   },
 
-  draw(t) {
-    const map = planetMaps.jupiter;
-    const minDim = Math.min(W, H);
-    const jd = this.jdAnchor + (t - this.tAnchor) * this.SPEED / 86400 * MOTION;
-    const sys = this.system(jd);
+  _repaint(g, p, cm) {
+    const G2 = g.geom, TW = G2.TW;
+    const reg = planetMaps.registry[p.key];
+    const base = ((cm - reg.lonLeft) * reg.texDir / 360 % 1 + 1) % 1;
+    const xoff = Math.round(base * TW) % TW;
+    if (xoff === g.lastXoff) return;
+    g.lastXoff = xoff;
+    const td = G2.tex.data, tn = G2.tex.night, o = G2.img.data;
+    const oi = G2.outIdx, rb = G2.rowBase, tx = G2.texXq, sh = G2.shade, nl = G2.nlit;
+    if (tn && nl) {
+      for (let k = 0; k < G2.n; k++) {
+        let x = tx[k] + xoff; if (x >= TW) x -= TW;
+        const j = (rb[k] + x) << 2, i = oi[k], s2 = sh[k], w2 = nl[k];
+        o[i]     = ((td[j] * s2) >> 8) + ((tn[j] * w2) >> 8);
+        o[i + 1] = ((td[j + 1] * s2) >> 8) + ((tn[j + 1] * w2) >> 8);
+        o[i + 2] = ((td[j + 2] * s2) >> 8) + ((tn[j + 2] * w2) >> 8);
+      }
+    } else {
+      for (let k = 0; k < G2.n; k++) {
+        let x = tx[k] + xoff; if (x >= TW) x -= TW;
+        const j = (rb[k] + x) << 2, i = oi[k], s2 = sh[k];
+        o[i]     = (td[j] * s2) >> 8;
+        o[i + 1] = (td[j + 1] * s2) >> 8;
+        o[i + 2] = (td[j + 2] * s2) >> 8;
+      }
+    }
+    g.ctx2.putImageData(G2.img, 0, 0);
+  },
 
-    // composition: off-center disk, slow drift (burn-in mitigation)
-    const cx0 = W * 0.42 + W * 0.020 * Math.sin(t * 0.011 * MOTION);
-    const cy0 = H * 0.52 + H * 0.014 * Math.sin(t * 0.007 * MOTION + 1.7);
-    const diskR = 0.27 * minDim;
-    const f = (W / 2) / Math.tan(this.FOV_H / 2);
-
-    // --- real Gaia field at Jupiter's current geocentric direction.
-    //     No twinkle, no extinction: there is no atmosphere out here. ---
-    if (!localSky.built || localSky.builtFrom !== gaiaCatalog.data?.source) localSky.build();
-    if (localSky.built) {
-      const B = localSky.built, sprites = gaiaCatalog.data.sprites;
-      const [Fx, Fy, Fz] = sys.F, [Ux2, Uy2, Uz2] = sys.U, [Rx, Ry, Rz] = sys.Rt;
-      const halfDiag = Math.atan(Math.hypot(Math.max(cx0, W - cx0),
-                                            Math.max(cy0, H - cy0)) / f);
-      const cosCull = Math.cos(halfDiag + 0.24);
-      const minvz = Math.cos(halfDiag + 0.06);
-      const magLim = D >= 1 ? 99 : 8.2 + 1.8 * D;
-      ctx.fillStyle = '#C9D2DC';
-      for (let b2 = 0; b2 < B.nb2; b2++) {
-        if (B.bcx[b2] * Fx + B.bcy[b2] * Fy + B.bcz[b2] * Fz < cosCull) continue;
-        for (let k = B.starts[b2]; k < B.starts[b2 + 1]; k++) {
-          const i = B.order[k];
-          const x = B.vx[i], y = B.vy[i], z = B.vz[i];
-          const vz2 = x * Fx + y * Fy + z * Fz;
-          if (vz2 < minvz) continue;
-          if (B.mag[i] > magLim) continue;
-          const px = cx0 + (x * Rx + y * Ry + z * Rz) / vz2 * f;
-          const py = cy0 - (x * Ux2 + y * Uy2 + z * Uz2) / vz2 * f;
-          if (px < -8 || px > W + 8 || py < -8 || py > H + 8) continue;
-          if (B.mag[i] < 6) {
-            const s = (0.9 + (6 - B.mag[i]) * 0.5) * 4;
-            ctx.globalAlpha = B.alpha[i] * 0.9;
-            ctx.drawImage(sprites[B.bk[i]], px - s, py - s, s * 2, s * 2);
-          } else {
-            ctx.globalAlpha = B.alpha[i] * 0.8;
-            ctx.fillRect(px, py, 1.2, 1.2);
-          }
+  /* prerender Saturn's rings (they don't rotate visibly): two strips,
+     the far half drawn behind the globe and the near half in front */
+  buildRings(g, De, Ds) {
+    const S = g.geom.S, R = S / 2;
+    const sinDe = Math.sin(De), absS = Math.max(Math.abs(sinDe), 0.0012);
+    const OUT = 2.35;
+    const W2 = Math.ceil(OUT * S) + 4;
+    const H2 = Math.max(10, Math.ceil(OUT * S * absS) + 6);
+    const sameSide = (Ds > 0) === (De > 0);
+    const light = (sameSide ? 1 : 0.28) *
+      Math.min(1, 0.35 + Math.abs(Ds) / (8 * Math.PI / 180) * 0.65);
+    const halves = {};
+    for (const half of ['back', 'front']) {
+      const c = document.createElement('canvas');
+      c.width = W2; c.height = H2;
+      const g2 = c.getContext('2d');
+      const cx = W2 / 2, cy = H2 / 2;
+      // far half appears above center when De>0 (canvas y down: sinφ<0)
+      const up = (De > 0) === (half === 'back');
+      const a0 = up ? Math.PI : 0, a1 = up ? TAU : Math.PI;
+      const step = Math.max(1.2, S / 560) / R;   // ~1.2 px radial steps
+      g2.lineWidth = step * R + 0.8;
+      for (const [r0, r1, al] of this.RINGS) {
+        for (let rho = r0; rho < r1; rho += step) {
+          g2.strokeStyle = `rgba(201,190,168,${(al * light).toFixed(3)})`;
+          g2.beginPath();
+          g2.ellipse(cx, cy, rho * R, Math.max(0.35, rho * R * absS), 0, a0, a1);
+          g2.stroke();
         }
       }
-      ctx.globalAlpha = 1;
+      halves[half] = c;
+    }
+    g.rings = { back: halves.back, front: halves.front, W2, H2 };
+  },
+
+  /* draw one planet globe; returns {px, py, r} or null if not drawn */
+  drawGlobe(p, sys, scale, cam, jd, diskR) {
+    if (scale < 0.004) return null;
+    const vz = sys.F[0] * cam.F[0] + sys.F[1] * cam.F[1] + sys.F[2] * cam.F[2];
+    if (vz < 0.15) return null;
+    const px = cam.cx0 + (sys.F[0] * cam.Rt[0] + sys.F[1] * cam.Rt[1] + sys.F[2] * cam.Rt[2]) / vz * cam.f;
+    const py = cam.cy0 - (sys.F[0] * cam.U[0] + sys.F[1] * cam.U[1] + sys.F[2] * cam.U[2]) / vz * cam.f;
+    const r = diskR * scale;
+    if (r < 2.2) return null;
+    if (px < -3 * r || px > W + 3 * r || py < -3 * r || py > H + 3 * r) return null;
+
+    planetMaps.request(p.key);
+    const map = planetMaps.peek(p.key);
+    if (!map) {          // still decoding: quiet placeholder
+      const g = ctx.createRadialGradient(px, py, 0, px, py, r);
+      g.addColorStop(0, p.orr.c + '55');
+      g.addColorStop(1, p.orr.c + '00');
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(px, py, r, 0, TAU); ctx.fill();
+      return { px, py, r };
     }
 
-    // --- the planet ---
-    if (map) {
-      const S = Math.min(840, Math.round(2 * diskR * Math.min(DPR, 2)));
-      if (!this._geom || this._geom.S !== S || this._geom.tex !== map
-          || Math.abs(this._geom.De - sys.De) > 0.005) {
-        this.buildGeom(S, map, sys.De);
-      }
-      const G2 = this._geom;
-      if (Math.abs(jd - this._shadeJd) > 0.5) {
-        this.buildShade(sys.sun);
-        this._shadeJd = jd;
-      }
-      const TW = G2.TW;
-      const xoff = ((Math.round((180 - sys.cm3) / 360 * TW) % TW) + TW) % TW;
-      if (xoff !== this._lastXoff) {
-        this._lastXoff = xoff;
-        const td = G2.tex.data, o = G2.img.data;
-        const oi = G2.outIdx, rb = G2.rowBase, tx = G2.texXq, sh = G2.shade;
-        for (let k = 0; k < G2.n; k++) {
-          let x = tx[k] + xoff; if (x >= TW) x -= TW;
-          const j = (rb[k] + x) << 2, i = oi[k], s2 = sh[k];
-          o[i]     = (td[j]     * s2) >> 8;
-          o[i + 1] = (td[j + 1] * s2) >> 8;
-          o[i + 2] = (td[j + 2] * s2) >> 8;
-        }
-        this._sphC.getContext('2d').putImageData(G2.img, 0, 0);
-      }
-      ctx.drawImage(this._sphC, cx0 - diskR, cy0 - diskR, diskR * 2, diskR * 2);
+    const S = Math.min(840, Math.round(2 * diskR * Math.min(DPR, 2)));
+    const g = this._globe(p.key);
+    if (!g.geom || g.geom.S !== S || g.geom.tex !== map
+        || g.geom.flat !== p.flat || Math.abs(g.geom.De - sys.De) > 0.005) {
+      this.buildGeom(g, S, map, p, sys.De);
     }
+    if (Math.abs(jd - g.shadeJd) > 0.1) {
+      this.buildShade(g, sys.sun);
+      if (p.rings) this.buildRings(g, sys.De, sys.Ds);
+      g.shadeJd = jd;
+    }
+    this._repaint(g, p, sys.cm);
 
-    // --- Galilean moons ---
-    const bE = 1 - this.FLAT;
+    if (p.rings && g.rings) {
+      const sc = 2 * r / g.geom.S;
+      const rw = g.rings.W2 * sc, rh = g.rings.H2 * sc;
+      ctx.drawImage(g.rings.back, px - rw / 2, py - rh / 2, rw, rh);
+      ctx.drawImage(g.canvas, px - r, py - r, 2 * r, 2 * r);
+      ctx.drawImage(g.rings.front, px - rw / 2, py - rh / 2, rw, rh);
+    } else {
+      ctx.drawImage(g.canvas, px - r, py - r, 2 * r, 2 * r);
+    }
+    return { px, py, r };
+  },
+
+  /* moons around a (near-full-size) globe: true directions and periods,
+     radial distance compressed beyond KNEE — limb contact stays exact */
+  drawMoons(p, sys, at, alpha, minDim) {
+    const bE = 1 - p.flat;
     const font = (px) => `${px}px 'IBM Plex Mono', monospace`;
-    for (const [k, mn] of sys.moons.entries()) {
-      const spec = this.MOONS[k];
+    for (const mn of sys.moons) {
       const rho = Math.hypot(mn.X, mn.Y);
-      const ell = mn.X * mn.X + (mn.Y / bE) * (mn.Y / bE);   // vs. disk ellipse
+      const ell = mn.X * mn.X + (mn.Y / bE) * (mn.Y / bE);
       if (!mn.front && ell < 1) continue;                    // occulted
-      let fade = 1;
-      if (!mn.front && ell < 1.35) fade = smooth((ell - 1) / 0.35);
+      let fade = alpha;
+      if (!mn.front && ell < 1.35) fade *= smooth((ell - 1) / 0.35);
       const rs = rho <= this.KNEE ? 1
         : this.KNEE * Math.pow(rho / this.KNEE, this.GAMMA) / rho;
-      const px = cx0 + mn.X * rs * diskR;
-      const py = cy0 - mn.Y * rs * diskR;
+      const px = at.px + mn.X * rs * at.r;
+      const py = at.py - mn.Y * rs * at.r;
       if (px < -20 || px > W + 20 || py < -20 || py > H + 20) continue;
-      const sz = spec.s * Math.max(0.75, minDim / 900);
+      const sz = mn.spec.s * Math.max(0.75, minDim / 900);
       if (mn.front && ell < 1) {          // transiting: rim for contrast
+        ctx.globalAlpha = fade;
         ctx.fillStyle = 'rgba(0,0,0,0.38)';
         ctx.beginPath(); ctx.arc(px, py, sz * 1.9, 0, TAU); ctx.fill();
       }
       const g = ctx.createRadialGradient(px, py, 0, px, py, sz * 4);
-      g.addColorStop(0, spec.c + 'BB');
-      g.addColorStop(0.3, spec.c + '44');
-      g.addColorStop(1, spec.c + '00');
+      g.addColorStop(0, mn.spec.c + 'BB');
+      g.addColorStop(0.3, mn.spec.c + '44');
+      g.addColorStop(1, mn.spec.c + '00');
       ctx.globalAlpha = fade;
       ctx.fillStyle = g;
       ctx.beginPath(); ctx.arc(px, py, sz * 4, 0, TAU); ctx.fill();
-      ctx.fillStyle = spec.c;
+      ctx.fillStyle = mn.spec.c;
       ctx.beginPath(); ctx.arc(px, py, sz, 0, TAU); ctx.fill();
       if (CONFIG.labels) {
         ctx.fillStyle = 'rgba(154,163,173,0.42)';
         ctx.font = font(8.5);
-        ctx.fillText(spec.name, px + sz + 5, py + 10);
+        ctx.fillText(mn.spec.name, px + sz + 5, py + 10);
       }
       ctx.globalAlpha = 1;
     }
+  },
 
-    // caption — the dials: ephemeris clock, central meridian, provenance
-    if (map) {
-      const iso = new Date((jd - 2440587.5) * 86400000).toISOString();
-      const cap = `${iso.slice(0, 10)} ${iso.slice(11, 16)} UT · CM III ${String(Math.round(sys.cm3) % 360).padStart(3, '0')}° · 1 s = 2 min · ${map.source} · moons: compressed radii`;
-      if (cap !== this._cap) {
-        this._cap = cap;
-        if (scenes[current] === this) detailEl.textContent = cap;
+  /* real Gaia field behind the camera direction — no twinkle, no
+     extinction: there is no atmosphere out here */
+  drawStars(cam) {
+    if (!localSky.built || localSky.builtFrom !== gaiaCatalog.data?.source) localSky.build();
+    if (!localSky.built) return;
+    const B = localSky.built, sprites = gaiaCatalog.data.sprites;
+    const [Fx, Fy, Fz] = cam.F, [Ux2, Uy2, Uz2] = cam.U, [Rx, Ry, Rz] = cam.Rt;
+    const halfDiag = Math.atan(Math.hypot(Math.max(cam.cx0, W - cam.cx0),
+                                          Math.max(cam.cy0, H - cam.cy0)) / cam.f);
+    const cosCull = Math.cos(halfDiag + 0.24);
+    const minvz = Math.cos(halfDiag + 0.06);
+    const magLim = D >= 1 ? 99 : 8.2 + 1.8 * D;
+    ctx.fillStyle = '#C9D2DC';
+    for (let b2 = 0; b2 < B.nb2; b2++) {
+      if (B.bcx[b2] * Fx + B.bcy[b2] * Fy + B.bcz[b2] * Fz < cosCull) continue;
+      for (let k = B.starts[b2]; k < B.starts[b2 + 1]; k++) {
+        const i = B.order[k];
+        const x = B.vx[i], y = B.vy[i], z = B.vz[i];
+        const vz2 = x * Fx + y * Fy + z * Fz;
+        if (vz2 < minvz) continue;
+        if (B.mag[i] > magLim) continue;
+        const px = cam.cx0 + (x * Rx + y * Ry + z * Rz) / vz2 * cam.f;
+        const py = cam.cy0 - (x * Ux2 + y * Uy2 + z * Uz2) / vz2 * cam.f;
+        if (px < -8 || px > W + 8 || py < -8 || py > H + 8) continue;
+        if (B.mag[i] < 6) {
+          const s = (0.9 + (6 - B.mag[i]) * 0.5) * 4;
+          ctx.globalAlpha = B.alpha[i] * 0.9;
+          ctx.drawImage(sprites[B.bk[i]], px - s, py - s, s * 2, s * 2);
+        } else {
+          ctx.globalAlpha = B.alpha[i] * 0.8;
+          ctx.fillRect(px, py, 1.2, 1.2);
+        }
       }
     }
+    ctx.globalAlpha = 1;
+  },
+
+  /* the Sun and every other planet as dots at their true directions and
+     apparent magnitudes — the destination is a real point of light you
+     watch grow into a world */
+  drawSystemDots(jd, cam, skipKeys) {
+    const T = (jd - 2451545.0) / 36525;
+    const e3 = orrery.helioEcl(orrery.planets[2], T);
+    const proj = (dir) => {
+      const vz = dir[0] * cam.F[0] + dir[1] * cam.F[1] + dir[2] * cam.F[2];
+      if (vz < 0.25) return null;
+      const px = cam.cx0 + (dir[0] * cam.Rt[0] + dir[1] * cam.Rt[1] + dir[2] * cam.Rt[2]) / vz * cam.f;
+      const py = cam.cy0 - (dir[0] * cam.U[0] + dir[1] * cam.U[1] + dir[2] * cam.U[2]) / vz * cam.f;
+      if (px < -30 || px > W + 30 || py < -30 || py > H + 30) return null;
+      return [px, py];
+    };
+    { // Sun at true angular size, restrained
+      const dS = Math.hypot(e3.x, e3.y, e3.z);
+      const at = proj(this._norm(this._eq(-e3.x, -e3.y, -e3.z)));
+      if (at) {
+        const rpx = 0.00465 / dS * cam.f;
+        const g = ctx.createRadialGradient(at[0], at[1], 0, at[0], at[1], rpx * 6);
+        g.addColorStop(0, 'rgba(255,246,228,0.9)');
+        g.addColorStop(0.18, 'rgba(240,214,160,0.45)');
+        g.addColorStop(1, 'rgba(232,217,176,0)');
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.arc(at[0], at[1], rpx * 6, 0, TAU); ctx.fill();
+      }
+    }
+    for (const p of this.PLANETS) {
+      if (p.zenith || skipKeys.includes(p.key)) continue;
+      const h3 = orrery.helioEcl(p.orr, T);
+      const g = this._eq(h3.x - e3.x, h3.y - e3.y, h3.z - e3.z);
+      const dg = Math.hypot(g[0], g[1], g[2]);
+      const at = proj([g[0] / dg, g[1] / dg, g[2] / dg]);
+      if (!at) continue;
+      const dh = Math.hypot(h3.x, h3.y, h3.z);
+      const mag = p.orr.m0 + 5 * Math.log10(dh * dg);
+      const size = Math.min(3.4, Math.max(0.9, 0.7 + (5.5 - mag) * 0.3));
+      const gr = ctx.createRadialGradient(at[0], at[1], 0, at[0], at[1], size * 4);
+      gr.addColorStop(0, p.orr.c + 'AA');
+      gr.addColorStop(0.3, p.orr.c + '44');
+      gr.addColorStop(1, p.orr.c + '00');
+      ctx.fillStyle = gr;
+      ctx.beginPath(); ctx.arc(at[0], at[1], size * 4, 0, TAU); ctx.fill();
+      ctx.fillStyle = p.orr.c;
+      ctx.beginPath(); ctx.arc(at[0], at[1], size * 0.75, 0, TAU); ctx.fill();
+    }
+  },
+
+  draw(t) {
+    const minDim = Math.min(W, H);
+    const tL = t - this.tAnchor;
+    const CYC = this.DWELL + this.TRANSIT;
+    const seg = Math.floor(tL / CYC);
+    const ph = tL - seg * CYC;
+    const N = this.PLANETS.length;
+    const iA = ((this._tour + seg) % N + N) % N;
+    const A = this.PLANETS[iA], Bp = this.PLANETS[(iA + 1) % N];
+    const prog = ph <= this.DWELL ? 0 : Math.min(1, (ph - this.DWELL) / this.TRANSIT);
+    const jd = this.jdAnchor + tL * this.SPEED / 86400 * MOTION;
+
+    planetMaps.request(A.key);
+    if (ph > this.DWELL * 0.4) planetMaps.request(Bp.key);
+
+    // freeze Earth's camera direction per visit (inertial hover: the
+    // planet rotates under the camera like every other stop)
+    if (A.zenith) {
+      const segKey = seg + ':' + iA;
+      if (this._earthSeg !== segKey) { this._earthSeg = segKey; this._earthF = null; }
+      if (!this._earthF) this._earthF = this.system(jd, A, null).F;
+    }
+    const sysA = this.system(jd, A, A.zenith ? this._earthF : null);
+    let sysB = null;
+    let F = sysA.F, U = sysA.U, Rt = sysA.Rt;
+    if (prog > 0) {
+      sysB = this.system(jd, Bp, null);
+      const sE = smooth(prog);
+      F = this._slerp(sysA.F, sysB.F, sE);
+      const PA = A.P, PB = Bp.P;
+      const Pm = this._norm([PA[0] + (PB[0] - PA[0]) * sE,
+                             PA[1] + (PB[1] - PA[1]) * sE,
+                             PA[2] + (PB[2] - PA[2]) * sE]);
+      const dpm = Pm[0] * F[0] + Pm[1] * F[1] + Pm[2] * F[2];
+      U = this._norm([Pm[0] - dpm * F[0], Pm[1] - dpm * F[1], Pm[2] - dpm * F[2]]);
+      Rt = [F[1] * U[2] - F[2] * U[1], F[2] * U[0] - F[0] * U[2], F[0] * U[1] - F[1] * U[0]];
+    } else if (ph > this.DWELL - 2) {
+      // pre-warm the next globe so the transit doesn't hitch
+      const sysB0 = this.system(jd, Bp, null);
+      this.drawGlobeWarm(Bp, sysB0, jd, 0.27 * minDim);
+    }
+
+    const cam = {
+      F, U, Rt,
+      f: (W / 2) / Math.tan(this.FOV_H / 2),
+      cx0: W * 0.42 + W * 0.020 * Math.sin(t * 0.011 * MOTION),
+      cy0: H * 0.52 + H * 0.014 * Math.sin(t * 0.007 * MOTION + 1.7),
+    };
+    const diskR = 0.27 * minDim;
+
+    this.drawStars(cam);
+
+    const scaleA = prog === 0 ? 1 : Math.max(0, 1 - smooth(Math.min(1, prog / 0.55)));
+    const scaleB = prog === 0 ? 0 : smooth(Math.max(0, (prog - 0.45) / 0.55));
+    const skip = [A.key];
+    if (scaleB > 0.004) skip.push(Bp.key);
+    this.drawSystemDots(jd, cam, skip);
+
+    const atA = this.drawGlobe(A, sysA, scaleA, cam, jd, diskR);
+    let atB = null;
+    if (sysB) atB = this.drawGlobe(Bp, sysB, scaleB, cam, jd, diskR);
+
+    const mA = prog === 0 ? 1 : Math.max(0, (scaleA - 0.85) / 0.15);
+    const mB = Math.max(0, (scaleB - 0.85) / 0.15);
+    if (sysA.moons && atA && mA > 0) this.drawMoons(A, sysA, atA, mA, minDim);
+    if (sysB && sysB.moons && atB && mB > 0) this.drawMoons(Bp, sysB, atB, mB, minDim);
+
+    // ---- caption & title: the dials ----
+    let cap, title;
+    if (prog === 0) {
+      const map = planetMaps.peek(A.key);
+      const iso = new Date((jd - 2440587.5) * 86400000).toISOString();
+      cap = `${iso.slice(0, 10)} ${iso.slice(11, 16)} UT · ${A.cmLabel || 'CM'} ` +
+        `${String(Math.round(sysA.cm) % 360).padStart(3, '0')}° · 1 s = 2 min · ` +
+        (map ? map.source : 'loading map');
+      if (A.phase) cap += ` · phase ${Math.round(Math.acos(Math.max(-1, Math.min(1, sysA.sun[2]))) * 180 / Math.PI)}°`;
+      if (A.rings) cap += ` · rings ${(Math.abs(sysA.De) * 180 / Math.PI).toFixed(1)}° open`;
+      if (sysA.moons) cap += ' · moons: compressed radii';
+      title = A.name;
+    } else {
+      const ha = sysA.h3, hb = sysB.h3;
+      const dAB = Math.hypot(hb.x - ha.x, hb.y - ha.y, hb.z - ha.z);
+      cap = `in transit · ${A.name} → ${Bp.name} · ${dAB.toFixed(2)} AU`;
+      title = prog < 0.5 ? A.name : Bp.name;
+    }
+    if (cap !== this._cap) {
+      this._cap = cap;
+      if (scenes[current] === this) detailEl.textContent = cap;
+    }
+    if (title !== this._title) {
+      this._title = title;
+      this.title = title;
+      if (scenes[current] === this) titleEl.textContent = title;
+    }
+  },
+
+  /* build geom/shade for an upcoming planet without drawing it */
+  drawGlobeWarm(p, sys, jd, diskR) {
+    const map = planetMaps.peek(p.key);
+    if (!map) return;
+    const S = Math.min(840, Math.round(2 * diskR * Math.min(DPR, 2)));
+    const g = this._globe(p.key);
+    if (!g.geom || g.geom.S !== S || g.geom.tex !== map
+        || g.geom.flat !== p.flat || Math.abs(g.geom.De - sys.De) > 0.005) {
+      this.buildGeom(g, S, map, p, sys.De);
+    }
+    if (Math.abs(jd - g.shadeJd) > 0.1) {
+      this.buildShade(g, sys.sun);
+      if (p.rings) this.buildRings(g, sys.De, sys.Ds);
+      g.shadeJd = jd;
+    }
+    this._repaint(g, p, sys.cm);
   },
 };
 

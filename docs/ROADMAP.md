@@ -50,33 +50,26 @@ for a separate theory-side scene. Original notes:
 
 Possibly both, as separate scenes.
 
-## 4. Planet tour — extend the Jupiter close-up (prototype DONE 2026-07)
+## 4. Planet tour — DONE 2026-07
 
-Shipped: `planetView`, a single-planet orbital close-up of Jupiter
-(Cassini map on an oblate sphere, IAU System III rotation, true
-terminator, Galilean moons, Gaia backdrop — all Horizons-verified).
-Planned growth into the full "bouncing around the solar system" scene:
+Shipped: `planetView` grand tour — all 8 planets on real mission maps
+(MESSENGER, Magellan, Blue Marble + VIIRS night, Viking, Cassini ×2,
+HST OPAL 2025), IAU rotation models Horizons-fitted per planet, true
+phases and terminators, Saturn's rings at the real (near-edge-on)
+opening, Galilean moons + Earth's Moon, camera slews across the real
+sky between planets with the Sun and other planets as true-position
+dots. Remaining refinements:
 
-- Textures for the rest: Mercury (MESSENGER MDIS), Venus (Magellan radar
-  and/or Akatsuki clouds), Earth (Blue Marble, month-matched), Mars
-  (Viking MDIM), Saturn (Cassini), Uranus/Neptune (Voyager 2 — low
-  detail is the honest state of knowledge). Add entries to
-  scripts/planet_textures.py; each needs its longitude convention
-  verified against the gridded companion release.
-- Per-planet rotation models (IAU pole + W series) and oblateness;
-  Saturn's rings (real C/B/A radii + Cassini Division, lit/unlit side
-  from the same sun geometry, shadow on the disk).
-- Visit order: in planet order (user preference), dwell a few minutes
-  each; fast transit between planets — planet recedes, stars hold (the
-  camera is the one licensed fiction), next planet grows. Crossfade
-  through black is the cheap fallback if the continuous transit fights
-  the scene-manager envelope.
-- Time compression per planet: 1 s = 2 min suits Jupiter/Saturn; slow
-  rotators (Venus 243 d) may want a different rate — captioned per stop.
-- Moon shadows on the disk (eclipses) for Jupiter; Titan + bright moons
-  for Saturn.
-- Inner planets show real phases (camera approaches along the Earth
-  line): Venus as a crescent when it really is one.
+- Moon shadows on the disk (eclipses/transit shadows) for Jupiter.
+- Titan and the bright Saturn moons (needs a trustworthy epoch theory —
+  verify against Horizons like the Galileans).
+- Phobos/Deimos for Mars (same requirement).
+- Ring shadow on Saturn's globe and globe shadow on the far rings.
+- Month-matched Blue Marble (12 textures or a build-time choice).
+- Earth has no destination dot during the first half of a transit
+  toward it (you can't see Earth from Earth); acceptable, revisit if it
+  reads oddly on the wall.
+- Newer OPAL maps as they are released (script re-run + year bump).
 
 ## 5. Additional scene candidates
 

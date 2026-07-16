@@ -82,19 +82,29 @@ Current scenes:
    Precesses through 4°-wide declination slices (~36 s each, crossfaded);
    each slice baked to an offscreen texture. Reference arcs at even
    redshifts. Falls back to the synthetic web offline/file://.
-4. `planetView` — Jupiter orbital close-up: Cassini global color map
-   (data/planets/jupiter.jpg, built by scripts/planet_textures.py, PIA07782,
-   System III west longitude, planetocentric latitude) wrapped per-pixel on
-   an orthographic oblate sphere. Rotation is the IAU System III model
-   (CM verified against JPL Horizons to ±0.1° over 2000–2026, light-time
-   corrected); sub-Earth latitude tilt and terminator/limb shading from the
-   true Sun–Jupiter–Earth geometry; Galilean moons from Meeus ch. 44 low-
-   accuracy theory (verified against Horizons to ~0.05 R_J, incl. transit/
-   occultation sides); Gaia field behind at Jupiter's true geocentric
-   direction, camera up = Jupiter's IAU pole. Time runs at 1 s = 2 min
-   (captioned); moon orbital radii compressed r^0.30 beyond 1.4 R_J
-   (captioned, limb-contact exact). Synthetic banded fallback offline.
-   Prototype for a multi-planet tour (see ROADMAP).
+4. `planetView` — planet grand tour: all 8 planets on real mission maps
+   (data/planets/*.jpg, built by scripts/planet_textures.py — MESSENGER,
+   Magellan radar, Blue Marble + VIIRS night, Viking MDIM, Cassini maps of
+   Jupiter and Saturn, HST OPAL 2025 for Uranus/Neptune; per-map longitude
+   conventions recorded in both the script and the planetMaps registry),
+   wrapped per-pixel on orthographic oblate spheres. Rotation from IAU
+   pole + W models with per-planet epoch offsets fitted against JPL
+   Horizons sub-observer longitudes (residual ≤0.3°, 2000–2026; conv ±1
+   encodes each body's east/west longitude handedness); terminator/limb
+   shading from true sun geometry (Mercury/Venus show their real phases,
+   captioned); Saturn's rings at real radii with the true opening angle
+   and unlit-face dimming; Galilean moons (Meeus, Horizons-verified to
+   ~0.05 R_J) and Earth's Moon; Gaia field behind each planet's true
+   geocentric direction, camera up = the planet's IAU pole. Earth is
+   viewed from an inertial hover over ?lat/lon (rotates beneath; VIIRS
+   night lights on the dark side). The tour dwells `dwell` seconds per
+   planet in order, then slews the camera across the real sky to the next
+   planet's actual direction (~7 s); other planets and the Sun appear as
+   dots at true positions/magnitudes throughout. Time runs at 1 s = 2 min
+   (captioned); moon orbital radii compressed r^0.30 beyond 1.4 planet
+   radii (captioned, limb-contact exact). Synthetic banded fallbacks
+   offline/file://. Decoded textures are LRU-capped at 3 (~26 MB RGBA
+   each); raw JPEGs are fetched once and kept.
 
 ## Config (URL query params)
 
@@ -108,6 +118,8 @@ Current scenes:
 | `lat`     | 51.4779        | observer latitude for Local Sky (deg, N+)|
 | `lon`     | 0              | observer longitude (deg, E+)             |
 | `callouts`| 4              | Local Sky: label the N closest bodies    |
+| `dwell`   | auto by hold   | Planets: seconds per planet (min 10)     |
+| `planet`  | mercury        | Planets: starting planet (name or 0–7)   |
 
 Typical deployments:
 - iPad frame: `?density=0.6&labels=off&hold=900`
