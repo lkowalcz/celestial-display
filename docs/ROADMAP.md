@@ -67,7 +67,11 @@ Remaining refinements:
 - Titan and the bright Saturn moons (needs a trustworthy epoch theory —
   verify against Horizons like the Galileans).
 - Phobos/Deimos for Mars (same requirement).
-- Ring shadow on Saturn's globe and globe shadow on the far rings.
+- ~~Globe shadow on the far rings~~ — DONE 2026-07 (anti-sunward wedge,
+  sun at infinity). Ring shadow on Saturn's globe still open. Saturn's
+  ring colors/opacities now come from the Cassini PIA08389 radial scan;
+  Uranus's narrow rings added. Neptune's faint arcs (Adams ring) are a
+  possible future nicety.
 - Month-matched Blue Marble (12 textures or a build-time choice).
 - Earth has no destination dot during the first half of a transit
   toward it (you can't see Earth from Earth); acceptable, revisit if it

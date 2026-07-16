@@ -97,8 +97,13 @@ Current scenes:
    Horizons sub-observer longitudes (residual ≤0.3°, 2000–2026; conv ±1
    encodes each body's east/west longitude handedness); terminator/limb
    shading from true sun geometry (Mercury/Venus show their real phases,
-   captioned); Saturn's rings at real radii with the true opening angle
-   and unlit-face dimming; Galilean moons (Meeus, Horizons-verified to
+   captioned); Saturn's rings colored per-radius from the Cassini
+   PIA08389 radial scan (scripts/planet_textures.py build_saturn_rings —
+   scan supplies registration/structure/hue, published per-region optical
+   depths supply the opaque-vs-empty backbone; banded fallback offline)
+   at the true opening angle, with unlit-face dimming and the planet's
+   shadow cast across the ring plane; Uranus's real narrow rings (alpha
+   through epsilon at true radii); Galilean moons (Meeus, Horizons-verified to
    ~0.05 R_J), Earth's Moon, and Charon (tidally locked: it rides on
    Pluto's rotation model along the sub-Charon prime meridian, verified
    against Horizons to <1 R_P); Gaia field behind each planet's true

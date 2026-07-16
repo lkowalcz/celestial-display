@@ -644,6 +644,7 @@ const planetMaps = {
     },
     saturn: {
       file: 'saturn.jpg', source: 'Cassini map (Aug 2011)',
+      ringProfile: 'saturn_rings.png',   // radial color/alpha, 74,000..140,600 km (PIA08389)
       lonLeft: 0, texDir: -1,     // System III west, 360°W at left edge (PDS4 label)
       synth: { amp: 0.05, freq: 4, stops: [
         [90, 168, 158, 138], [60, 198, 184, 154], [35, 216, 200, 164],
@@ -707,6 +708,10 @@ const planetMaps = {
     if (reg.night) {
       const nt = await grab(reg.night);
       if (nt.w === day.w && nt.h === day.h) entry.night = nt.data;
+    }
+    if (reg.ringProfile) {
+      try { entry.ringProfile = await grab(reg.ringProfile); }
+      catch (e) { console.warn('ring profile failed:', e); }
     }
     this._store(key, entry);
   },
@@ -1321,9 +1326,10 @@ const planetView = {
       pole: [268.056595, 64.495303], W0: 285.64, Wd: 870.5360000, conv: 1,
       moons: 'galilean' },
     { key: 'saturn', name: 'SATURN', oi: 5, flat: 0.09796,
-      pole: [40.589, 83.537], W0: 39.421, Wd: 810.7939024, conv: 1, rings: true },
+      pole: [40.589, 83.537], W0: 39.421, Wd: 810.7939024, conv: 1, rings: 'saturn' },
     { key: 'uranus', name: 'URANUS', oi: 6, flat: 0.0229,
-      pole: [257.311, -15.175], W0: 203.427, Wd: -501.1600928, conv: -1 },
+      pole: [257.311, -15.175], W0: 203.427, Wd: -501.1600928, conv: -1,
+      rings: 'uranus' },
     { key: 'neptune', name: 'NEPTUNE', oi: 7, flat: 0.0171,
       pole: [299.36, 43.46], W0: 250.271, Wd: 541.1397757, conv: 1 },
     { key: 'pluto', name: 'PLUTO', oi: 8, flat: 0,
@@ -1340,9 +1346,12 @@ const planetView = {
   MOONSPEC: { name: 'MOON', c: '#C9CDD3', s: 2.2 },
   CHARONSPEC: { name: 'CHARON', c: '#B6B2AC', s: 2.0 },
 
-  /* Saturn's main rings, real radii in Saturn equatorial radii (60,268 km):
-     [inner, outer, opacity]. Radii exact; opacities approximate optical
-     appearance. */
+  /* Saturn's main rings: normally colored per-radius from the Cassini
+     PIA08389 radial scan (data/planets/saturn_rings.png, spanning
+     RINGS_KM0..RINGS_KM1 from Saturn's center); these bands with real
+     radii (in Saturn equatorial radii, 60,268 km) are the offline
+     fallback only. */
+  RINGS_KM0: 74000, RINGS_KM1: 140600, R_SAT_KM: 60268,
   RINGS: [
     [1.239, 1.527, 0.20],   // C
     [1.527, 1.951, 0.62],   // B
@@ -1351,6 +1360,20 @@ const planetView = {
     [2.214, 2.220, 0.08],   // Encke gap
     [2.220, 2.269, 0.42],   // A (outside Encke)
     [2.320, 2.332, 0.10],   // F
+  ],
+
+  /* Uranus's narrow rings: real radii (in Uranus equatorial radii,
+     25,559 km) and rough relative opacities; the epsilon ring is the
+     only substantial one. Particles are near-black (albedo ~0.05). */
+  URANUS_RINGS: [
+    [1.637, 0.05], [1.652, 0.06], [1.666, 0.07],   // rings 6, 5, 4
+    [1.750, 0.12],                                 // alpha
+    [1.786, 0.12],                                 // beta
+    [1.846, 0.09],                                 // eta
+    [1.863, 0.12],                                 // gamma
+    [1.890, 0.11],                                 // delta
+    [1.957, 0.05],                                 // lambda
+    [2.001, 0.30],                                 // epsilon
   ],
 
   tAnchor: 0, jdAnchor: 0, _tour: -1, _cap: '', _title: '',
@@ -1656,6 +1679,7 @@ const planetView = {
      when the phase geometry has drifted (fast for Mercury/Venus) */
   buildShade(g, sun) {
     const G2 = g.geom;
+    G2.sunCam = sun;              // kept for the ring-shadow wedge
     for (let k = 0; k < G2.n; k++) {
       const mu = G2.nz[k];
       const lit = G2.nx[k] * sun[0] + G2.ny[k] * sun[1] + mu * sun[2];
@@ -1697,17 +1721,24 @@ const planetView = {
     g.ctx2.putImageData(G2.img, 0, 0);
   },
 
-  /* prerender Saturn's rings (they don't rotate visibly): two strips,
-     the far half drawn behind the globe and the near half in front */
-  buildRings(g, De, Ds) {
+  /* prerender the ring system (it doesn't rotate visibly): two strips,
+     the far half drawn behind the globe and the near half in front.
+     Saturn: per-radius color/alpha sampled from the Cassini PIA08389
+     radial scan (banded fallback offline). Uranus: the real narrow
+     rings. Both get the planet's shadow: the anti-sunward wedge where
+     the globe blocks the sun (sun at infinity, oblateness ignored) is
+     punched out of the prerender. */
+  buildRings(g, De, Ds, p) {
     const S = g.geom.S, R = S / 2;
     const sinDe = Math.sin(De), absS = Math.max(Math.abs(sinDe), 0.0012);
-    const OUT = 2.35;
+    const uranian = p.rings === 'uranus';
+    const OUT = uranian ? 2.05 : 2.35;
     const W2 = Math.ceil(OUT * S) + 4;
     const H2 = Math.max(10, Math.ceil(OUT * S * absS) + 6);
     const sameSide = (Ds > 0) === (De > 0);
     const light = (sameSide ? 1 : 0.28) *
       Math.min(1, 0.35 + Math.abs(Ds) / (8 * Math.PI / 180) * 0.65);
+    const profile = planetMaps.peek(p.key)?.ringProfile || null;
     const halves = {};
     for (const half of ['back', 'front']) {
       const c = document.createElement('canvas');
@@ -1717,16 +1748,68 @@ const planetView = {
       // far half appears above center when De>0 (canvas y down: sinφ<0)
       const up = (De > 0) === (half === 'back');
       const a0 = up ? Math.PI : 0, a1 = up ? TAU : Math.PI;
-      const step = Math.max(1.2, S / 560) / R;   // ~1.2 px radial steps
-      g2.lineWidth = step * R + 0.8;
-      for (const [r0, r1, al] of this.RINGS) {
-        for (let rho = r0; rho < r1; rho += step) {
-          g2.strokeStyle = `rgba(201,190,168,${(al * light).toFixed(3)})`;
+      if (uranian) {
+        for (const [rho, al] of this.URANUS_RINGS) {
+          g2.strokeStyle = `rgba(150,146,140,${(al * light).toFixed(3)})`;
+          g2.lineWidth = rho > 1.99 ? 1.1 : 0.7;
           g2.beginPath();
           g2.ellipse(cx, cy, rho * R, Math.max(0.35, rho * R * absS), 0, a0, a1);
           g2.stroke();
         }
+      } else if (profile) {
+        const step = Math.max(1.2, S / 560) / R;
+        g2.lineWidth = step * R + 0.8;
+        const k0 = this.RINGS_KM0, k1 = this.RINGS_KM1, rs = this.R_SAT_KM;
+        for (let rho = k0 / rs; rho < k1 / rs; rho += step) {
+          const i = Math.min(profile.w - 1,
+            Math.max(0, Math.floor((rho * rs - k0) / (k1 - k0) * profile.w))) * 4;
+          const al = profile.data[i + 3] / 255;
+          if (al < 0.01) continue;
+          g2.strokeStyle = `rgba(${profile.data[i]},${profile.data[i + 1]},` +
+            `${profile.data[i + 2]},${(al * light).toFixed(3)})`;
+          g2.beginPath();
+          g2.ellipse(cx, cy, rho * R, Math.max(0.35, rho * R * absS), 0, a0, a1);
+          g2.stroke();
+        }
+      } else {
+        const step = Math.max(1.2, S / 560) / R;
+        g2.lineWidth = step * R + 0.8;
+        for (const [r0, r1, al] of this.RINGS) {
+          for (let rho = r0; rho < r1; rho += step) {
+            g2.strokeStyle = `rgba(201,190,168,${(al * light).toFixed(3)})`;
+            g2.beginPath();
+            g2.ellipse(cx, cy, rho * R, Math.max(0.35, rho * R * absS), 0, a0, a1);
+            g2.stroke();
+          }
+        }
       }
+      // planet shadow: wedge around the anti-sun azimuth, half-width
+      // asin(1/rho) at each radius (curved edges)
+      const sun = g.geom.sunCam || [0, 0, 1];
+      const phiS = Math.atan2(sun[1] * sinDe - sun[2] * Math.cos(De), sun[0]);
+      const phiC = phiS + Math.PI;
+      const rIn = uranian ? 1.55 : 1.20, rOut = OUT;
+      g2.save();
+      g2.globalCompositeOperation = 'destination-out';
+      g2.fillStyle = 'rgba(0,0,0,0.88)';
+      g2.beginPath();
+      const NPT = 26;
+      for (let k = 0; k <= NPT; k++) {
+        const rho = rIn + (rOut - rIn) * k / NPT;
+        const ph = phiC - Math.asin(Math.min(1, 1 / rho));
+        const x = cx + rho * R * Math.cos(ph);
+        const y = cy - rho * R * sinDe * Math.sin(ph);
+        k === 0 ? g2.moveTo(x, y) : g2.lineTo(x, y);
+      }
+      for (let k = NPT; k >= 0; k--) {
+        const rho = rIn + (rOut - rIn) * k / NPT;
+        const ph = phiC + Math.asin(Math.min(1, 1 / rho));
+        g2.lineTo(cx + rho * R * Math.cos(ph),
+                  cy - rho * R * sinDe * Math.sin(ph));
+      }
+      g2.closePath();
+      g2.fill();
+      g2.restore();
       halves[half] = c;
     }
     g.rings = { back: halves.back, front: halves.front, W2, H2 };
@@ -1762,7 +1845,7 @@ const planetView = {
     }
     if (Math.abs(jd - g.shadeJd) > 0.1) {
       this.buildShade(g, sys.sun);
-      if (p.rings) this.buildRings(g, sys.De, sys.Ds);
+      if (p.rings) this.buildRings(g, sys.De, sys.Ds, p);
       g.shadeJd = jd;
     }
     this._repaint(g, p, sys.cm);
@@ -2032,7 +2115,7 @@ const planetView = {
     }
     if (Math.abs(jd - g.shadeJd) > 0.1) {
       this.buildShade(g, sys.sun);
-      if (p.rings) this.buildRings(g, sys.De, sys.Ds);
+      if (p.rings) this.buildRings(g, sys.De, sys.Ds, p);
       g.shadeJd = jd;
     }
     this._repaint(g, p, sys.cm);

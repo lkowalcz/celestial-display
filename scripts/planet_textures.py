@@ -302,6 +302,120 @@ MAPS = {
 }
 
 
+def build_saturn_rings():
+    """Radial color/alpha profile of Saturn's rings from the Cassini
+    PIA08389 rectified natural-color scan of the UNLIT ring face
+    (radius left to right, ~6 km/px).
+
+    Physics: unlit-face brightness peaks at intermediate optical depth —
+    translucent regions glow with transmitted sunlight while both the
+    opaque B-ring core and truly empty gaps are dark — so the scan gives
+    radius-registered fine structure and hue, while published per-region
+    mean optical depths provide the low-frequency backbone that breaks
+    the dark=opaque / dark=empty degeneracy. tau is modulated within each
+    region by the scan with the physically right sign; alpha = 1-e^-tau;
+    lit luminance = region albedo x alpha^0.55 (C/CD particles are darker
+    than B/A ice).
+
+    Radius calibration: piecewise-linear through six unambiguous scan
+    features verified by eye — C inner edge, Colombo gap (77,870 km),
+    Maxwell gap (87,510), Encke gap (133,589), A outer edge (136,780),
+    F ring peak (140,180); the scan rate drifts ~5%% so a single linear
+    fit is not enough. Output: data/planets/saturn_rings.png (660x1 RGBA,
+    74,000..140,600 km)."""
+    import numpy as np
+
+    url = ("https://assets.science.nasa.gov/content/dam/science/psd/"
+           "photojournal/pia/pia08/pia08389/PIA08389.jpg")
+    print(f"saturn_rings: fetching {url}")
+    img = fetch(url)
+    a = np.asarray(img).astype(np.float64)
+    H, W = a.shape[:2]
+    band = a[int(H * 0.38):int(H * 0.62)].mean(axis=0)
+    lum = band @ [0.299, 0.587, 0.114]
+    sl = np.convolve(lum, np.ones(7) / 7, mode="same")
+
+    # anchors: (approx px from inspection, refine, radius km)
+    def local_min(px0, w=140):
+        s = slice(max(0, px0 - w), px0 + w)
+        return s.start + int(np.argmin(sl[s]))
+    def local_max(px0, w=140):
+        s = slice(max(0, px0 - w), px0 + w)
+        return s.start + int(np.argmax(sl[s]))
+    def rise_edge(px0, w=200):     # C inner: first sustained brightness
+        s0 = max(0, px0 - w)
+        for x in range(s0, px0 + w):
+            if sl[x] > 25 and sl[x + 15] > 25:
+                return x
+        return px0
+    def drop_edge(px0, w=200):     # A outer: steepest fall
+        s = slice(max(0, px0 - w), px0 + w)
+        g = np.diff(sl[s])
+        return s.start + int(np.argmin(g))
+
+    anchors = [
+        (rise_edge(420), 74490.0),      # C inner edge
+        (local_min(990), 77870.0),      # Colombo gap
+        (local_min(2600), 87510.0),     # Maxwell gap
+        (local_min(9800), 133589.0),    # Encke gap
+        (drop_edge(10310), 136780.0),   # A outer edge
+        (local_max(10880), 140180.0),   # F ring
+    ]
+    px_a = np.array([p for p, _ in anchors], float)
+    km_a = np.array([r for _, r in anchors], float)
+    rates = np.diff(km_a) / np.diff(px_a)
+    print("saturn_rings: anchors", [(int(p), int(r)) for p, r in anchors])
+    print("saturn_rings: km/px per segment", np.round(rates, 2))
+    assert np.all(rates > 4.5) and np.all(rates < 8.0), "calibration failed"
+    px_of = lambda r: np.interp(r, km_a, px_a)
+
+    REGIONS = [   # r0, r1, tau0, albedo, sign(+1: brighter=thicker)
+        (74490., 91983., 0.09, 0.55, +1),     # C
+        (91983., 104500., 1.00, 1.00, -1),    # B inner
+        (104500., 110300., 2.50, 1.00, -1),   # B core
+        (110300., 117516., 1.50, 1.00, -1),   # B outer
+        (117516., 122053., 0.12, 0.60, +1),   # Cassini Division
+        (122053., 133423., 0.50, 0.95, +1),   # A inner
+        (133423., 133745., 0.02, 0.95, +1),   # Encke gap
+        (133745., 136485., 0.60, 0.95, +1),   # A outer
+        (136485., 136522., 0.02, 0.95, +1),   # Keeler gap
+        (136522., 136780., 0.60, 0.95, +1),   # A edge
+        (139980., 140380., 0.15, 0.80, +1),   # F
+    ]
+    N, R0, R1 = 660, 74000.0, 140600.0
+    rgba = np.zeros((1, N, 4), np.uint8)
+    norms = {}
+    for (r0, r1, *_x) in REGIONS:
+        i0, i1 = int(px_of(r0)), int(px_of(r1))
+        if i1 - i0 > 4:
+            seg = sl[i0:i1]
+            norms[r0] = (np.percentile(seg, 4), np.percentile(seg, 96))
+    for i in range(N):
+        r = R0 + (R1 - R0) * (i + 0.5) / N
+        reg = next((g for g in REGIONS if g[0] <= r < g[1]), None)
+        if reg is None:
+            continue
+        r0, r1, tau0, alb, sgn = reg
+        j = int(px_of(r))
+        if j < 2 or j >= W - 2:
+            continue
+        loN, hiN = norms.get(r0, (0.0, 1.0))
+        u = min(1.0, max(0.0, (sl[j] - loN) / max(1e-6, hiN - loN)))
+        mod = (0.35 + 1.40 * u) if sgn > 0 else (1.70 - 1.10 * u)
+        tau = tau0 * mod
+        alpha = 1.0 - np.exp(-tau)
+        cl = max(1.0, lum[j])
+        chroma = np.clip(band[j] / cl, 0.8, 1.2)
+        lit = 250.0 * alb * alpha ** 0.55
+        rgba[0, i, :3] = np.clip(chroma * lit, 0, 255)
+        rgba[0, i, 3] = int(min(0.97, alpha) * 255)
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    out = OUT_DIR / "saturn_rings.png"
+    Image.fromarray(rgba, "RGBA").save(out)
+    print(f"saturn_rings: wrote {out} ({out.stat().st_size} B)  credit: "
+          "NASA/JPL/Space Science Institute (Cassini ISS, PIA08389)")
+
+
 def fetch(url: str) -> Image.Image:
     req = urllib.request.Request(url, headers={"User-Agent": "celestial-display/1.0"})
     with urllib.request.urlopen(req, timeout=180) as r:
@@ -332,6 +446,9 @@ def build(name: str) -> None:
 
 
 if __name__ == "__main__":
-    names = sys.argv[1:] or list(MAPS)
+    names = sys.argv[1:] or list(MAPS) + ["saturn_rings"]
     for n in names:
-        build(n)
+        if n == "saturn_rings":
+            build_saturn_rings()
+        else:
+            build(n)
