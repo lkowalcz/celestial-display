@@ -50,12 +50,37 @@ for a separate theory-side scene. Original notes:
 
 Possibly both, as separate scenes.
 
-## 4. Additional scene candidates
+## 4. Planet tour — extend the Jupiter close-up (prototype DONE 2026-07)
 
-- Planets, Moon, and Sun in the Local Sky scene: geocentric positions
-  are one subtraction away from the orrery's heliocentric ephemeris —
-  seeing Venus in the window where Venus actually is would complete the
-  clock. Moon needs its own (simple truncated) theory.
+Shipped: `planetView`, a single-planet orbital close-up of Jupiter
+(Cassini map on an oblate sphere, IAU System III rotation, true
+terminator, Galilean moons, Gaia backdrop — all Horizons-verified).
+Planned growth into the full "bouncing around the solar system" scene:
+
+- Textures for the rest: Mercury (MESSENGER MDIS), Venus (Magellan radar
+  and/or Akatsuki clouds), Earth (Blue Marble, month-matched), Mars
+  (Viking MDIM), Saturn (Cassini), Uranus/Neptune (Voyager 2 — low
+  detail is the honest state of knowledge). Add entries to
+  scripts/planet_textures.py; each needs its longitude convention
+  verified against the gridded companion release.
+- Per-planet rotation models (IAU pole + W series) and oblateness;
+  Saturn's rings (real C/B/A radii + Cassini Division, lit/unlit side
+  from the same sun geometry, shadow on the disk).
+- Visit order: in planet order (user preference), dwell a few minutes
+  each; fast transit between planets — planet recedes, stars hold (the
+  camera is the one licensed fiction), next planet grows. Crossfade
+  through black is the cheap fallback if the continuous transit fights
+  the scene-manager envelope.
+- Time compression per planet: 1 s = 2 min suits Jupiter/Saturn; slow
+  rotators (Venus 243 d) may want a different rate — captioned per stop.
+- Moon shadows on the disk (eclipses) for Jupiter; Titan + bright moons
+  for Saturn.
+- Inner planets show real phases (camera approaches along the Earth
+  line): Venus as a crescent when it really is one.
+
+## 5. Additional scene candidates
+
+- ~~Planets, Moon, and Sun in the Local Sky scene~~ — DONE 2026-07.
 
 - Laniakea-style local flows: galaxy peculiar-velocity streamlines
   (CosmicFlows data) — the most beautiful figure in modern cosmology.
@@ -67,7 +92,7 @@ Possibly both, as separate scenes.
 - Exoplanet systems: confirmed multi-planet systems drawn to the same
   log-radial grammar as the orrery, rotating through systems.
 
-## 5. Infrastructure
+## 6. Infrastructure
 
 - Auto-reload: displays should poll a version string (e.g., a `version.json`)
   every few hours and reload when it changes, so kiosk devices pick up

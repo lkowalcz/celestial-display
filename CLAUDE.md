@@ -82,6 +82,19 @@ Current scenes:
    Precesses through 4°-wide declination slices (~36 s each, crossfaded);
    each slice baked to an offscreen texture. Reference arcs at even
    redshifts. Falls back to the synthetic web offline/file://.
+4. `planetView` — Jupiter orbital close-up: Cassini global color map
+   (data/planets/jupiter.jpg, built by scripts/planet_textures.py, PIA07782,
+   System III west longitude, planetocentric latitude) wrapped per-pixel on
+   an orthographic oblate sphere. Rotation is the IAU System III model
+   (CM verified against JPL Horizons to ±0.1° over 2000–2026, light-time
+   corrected); sub-Earth latitude tilt and terminator/limb shading from the
+   true Sun–Jupiter–Earth geometry; Galilean moons from Meeus ch. 44 low-
+   accuracy theory (verified against Horizons to ~0.05 R_J, incl. transit/
+   occultation sides); Gaia field behind at Jupiter's true geocentric
+   direction, camera up = Jupiter's IAU pole. Time runs at 1 s = 2 min
+   (captioned); moon orbital radii compressed r^0.30 beyond 1.4 R_J
+   (captioned, limb-contact exact). Synthetic banded fallback offline.
+   Prototype for a multi-planet tour (see ROADMAP).
 
 ## Config (URL query params)
 
