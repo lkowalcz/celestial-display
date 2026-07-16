@@ -58,6 +58,35 @@ def fill_polar_gap(img, edge_lat, north):
     return img
 
 
+def tint_to_mean(img, target):
+    """Scale channels so the image mean matches a target RGB. The OPAL
+    color composites are narrowband-filter renderings with arbitrary
+    scaling; this anchors each map's disk-average to the published
+    true-color values (Irwin et al. 2024, MNRAS 527: Uranus and Neptune
+    are both pale greenish-blue, Neptune slightly bluer — the familiar
+    deep-blue Neptune is a Voyager-era processing artifact)."""
+    px = img.load()
+    w, h = img.size
+    lum = lambda c: 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]
+    step = max(1, w // 400)
+    tot, n = 0.0, 0
+    for y in range(0, h, step):
+        for x in range(0, w, step):
+            tot += lum(px[x, y])
+            n += 1
+    mean_l = max(1.0, tot / n)
+    # luminance carries the (real) structure; chromaticity comes from the
+    # true-color target, plus a muted 35% of the original narrowband tint
+    for y in range(h):
+        for x in range(w):
+            c = px[x, y]
+            l = lum(c)
+            f = l / mean_l
+            px[x, y] = tuple(min(255, max(0,
+                int(target[k] * f + 0.35 * (c[k] - l)))) for k in range(3))
+    return img
+
+
 def fill_lat_band(img, lat_top, lat_bot):
     """Replace a latitude band with a per-column linear blend between its
     bounding rows. Used to remove illumination artifacts (e.g. the ring
@@ -92,7 +121,47 @@ def fill_lat_band(img, lat_top, lat_bot):
     return img
 
 
+def fill_black_south(img, start_lat):
+    """New Horizons could not see Pluto's south (seasonal darkness): the
+    map is black below ~-53 deg with ragged black bites from ~-30 deg.
+    Southward of start_lat, replace near-black pixels with the row mean of
+    the remaining real data (carrying the last filled color once a row is
+    fully unmapped). Latitudinal gradient survives; no fake detail."""
+    px = img.load()
+    w, h = img.size
+    r0 = min(h - 1, max(0, int((90 - start_lat) / 180 * h)))
+    lum = lambda c: 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]
+    carry = None
+    for y in range(r0, h):
+        bright = [px[x, y] for x in range(w) if lum(px[x, y]) > 14]
+        if bright:
+            n = len(bright)
+            carry = tuple(sum(c[k] for c in bright) // n for k in range(3))
+        if carry is None:
+            continue
+        for x in range(w):
+            if lum(px[x, y]) <= 14:
+                px[x, y] = carry
+    return img
+
+
 MAPS = {
+    # New Horizons Ralph/MVIC enhanced-color global mosaic of Pluto (July
+    # 2015 flyby; blue/red/NIR filters — enhanced, not visual color).
+    # Equirectangular, left edge 0 deg longitude, east-positive increasing
+    # rightward, Sputnik Planitia (175 deg E) at map center — verified by
+    # landmark. The encounter hemisphere is sharp; the far side is low-res
+    # approach imagery; south of ~-30..-53 deg was in seasonal darkness
+    # (unmapped black) and is filled with row means of the real data.
+    "pluto": {
+        "url": "https://assets.science.nasa.gov/content/dam/science/psd/"
+               "solar/2023/09/p/l/pluto_color_mapmosaic.jpg",
+        "credit": "NASA/JHUAPL/SwRI (New Horizons MVIC global color "
+                  "mosaic, enhanced color)",
+        "size": (3600, 1800),
+        "post": lambda im: fill_black_south(im, -25),
+    },
+
     # Cassini ISS narrow-angle global color map, Dec 11-12 2000 flyby.
     # PIA07782, NASA/JPL/Space Science Institute. 3601x1801, 0.1 deg/px,
     # planetocentric latitude, System III west longitude, 180 at left edge
@@ -212,7 +281,8 @@ MAPS = {
                   "DOI 10.17909/T9G593, Oct 2025",
         "size": (2160, 1080),
         "crop_dupe_edge": True,          # 721x361 inclusive grid
-        "post": lambda im: fill_polar_gap(im, -2, north=False),
+        "post": lambda im: tint_to_mean(fill_polar_gap(im, -2, north=False),
+                                        (166, 199, 203)),
     },
 
     # Hubble OPAL global map of Neptune, Cycle 32 rotation 2 (2025-08-24),
@@ -226,7 +296,8 @@ MAPS = {
                   "DOI 10.17909/T9G593, Aug 2025",
         "size": (2160, 1080),
         "crop_dupe_edge": True,
-        "post": lambda im: fill_polar_gap(im, 30, north=True),
+        "post": lambda im: tint_to_mean(fill_polar_gap(im, 30, north=True),
+                                        (118, 154, 189)),
     },
 }
 

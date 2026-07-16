@@ -154,6 +154,7 @@ const autoDensity = Math.max(0.35, Math.min(2.0,
   (window.innerWidth * window.innerHeight) / (1920 * 1080)));
 
 const CONFIG = {
+  view:    params.get('view') || 'ambient', // 'ambient': 3-scene rotation; 'tour': planet tour
   hold:    num('hold', 40),                 // seconds per scene
   fade:    num('fade', 2.6),                // crossfade duration
   density: num('density', autoDensity),     // particle-count multiplier
@@ -632,7 +633,7 @@ const planetMaps = {
     jupiter: {
       file: 'jupiter.jpg', source: 'Cassini map (Dec 2000)',
       lonLeft: 180, texDir: -1,   // System III west, 180 at left edge (PIA07782_fig1)
-      grs: true,
+      oval: [0.35, -22, 11, 4.5, 212, 142, 104],  // GRS stand-in (synthetic only)
       synth: { amp: 0.035, freq: 3, stops: [
         [90, 152, 152, 150], [62, 166, 158, 146], [45, 184, 170, 152],
         [33, 202, 188, 164], [27, 178, 155, 125], [19, 224, 216, 202],
@@ -660,8 +661,16 @@ const planetMaps = {
       file: 'neptune.jpg', source: 'HST OPAL (Aug 2025)',
       lonLeft: 0, texDir: -1,     // OPAL: west longitude, 360 at left edge
       synth: { amp: 0.05, freq: 4, stops: [
-        [90, 98, 166, 152], [30, 112, 192, 172], [-20, 106, 184, 166],
-        [-60, 98, 170, 154], [-90, 90, 158, 146]] },
+        [90, 104, 142, 178], [30, 116, 156, 192], [-20, 110, 150, 186],
+        [-60, 102, 142, 176], [-90, 96, 136, 170]] },
+    },
+    pluto: {
+      file: 'pluto.jpg', source: 'New Horizons mosaic',
+      lonLeft: 0, texDir: 1,      // east-positive, 0 at left edge (Sputnik at 175°E center)
+      oval: [0.486, 18, 28, 20, 234, 224, 208],   // heart stand-in (synthetic only)
+      synth: { amp: 0.20, freq: 9, stops: [
+        [90, 196, 178, 158], [40, 178, 150, 124], [0, 130, 92, 74],
+        [-30, 168, 142, 118], [-90, 158, 136, 116]] },
     },
   },
   decoded: {}, pending: {}, blobs: {}, _touch: 0,
@@ -740,12 +749,13 @@ const planetMaps = {
         let r = (c0[0] + (c1[0] - c0[0]) * f) * n;
         let g = (c0[1] + (c1[1] - c0[1]) * f) * n;
         let b = (c0[2] + (c1[2] - c0[2]) * f) * n;
-        if (reg.grs) {   // Great Red Spot stand-in at its real latitude
-          let dl = ((u - 0.35) % 1 + 1) % 1; if (dl > 0.5) dl -= 1;
-          const e2 = (dl * 360 / 11) ** 2 + ((lat + 22) / 4.5) ** 2;
+        if (reg.oval) {   // signature feature stand-in at its real spot
+          const [ou, olat, orx, ory, or_, og, ob] = reg.oval;
+          let dl = ((u - ou) % 1 + 1) % 1; if (dl > 0.5) dl -= 1;
+          const e2 = (dl * 360 / orx) ** 2 + ((lat - olat) / ory) ** 2;
           if (e2 < 1) {
             const m = smooth(1 - e2);
-            r += (212 - r) * m; g += (142 - g) * m; b += (104 - b) * m;
+            r += (or_ - r) * m; g += (og - g) * m; b += (ob - b) * m;
           }
         }
         const o = (py * w + px) * 4;
@@ -1316,6 +1326,9 @@ const planetView = {
       pole: [257.311, -15.175], W0: 203.427, Wd: -501.1600928, conv: -1 },
     { key: 'neptune', name: 'NEPTUNE', oi: 7, flat: 0.0171,
       pole: [299.36, 43.46], W0: 250.271, Wd: 541.1397757, conv: 1 },
+    { key: 'pluto', name: 'PLUTO', oi: 8, flat: 0,
+      pole: [132.993, -6.163], W0: 302.695, Wd: 56.3625225, conv: -1,
+      moons: 'charon' },
   ],
 
   GALILEAN: [
@@ -1325,6 +1338,7 @@ const planetView = {
     { name: 'CALLISTO', c: '#A89E90', s: 2.4 },
   ],
   MOONSPEC: { name: 'MOON', c: '#C9CDD3', s: 2.2 },
+  CHARONSPEC: { name: 'CHARON', c: '#B6B2AC', s: 2.0 },
 
   /* Saturn's main rings, real radii in Saturn equatorial radii (60,268 km):
      [inner, outer, opacity]. Radii exact; opacities approximate optical
@@ -1355,7 +1369,7 @@ const planetView = {
     }
     this.DWELL = params.has('dwell')
       ? Math.max(10, num('dwell', 75))
-      : CONFIG.scene !== null ? 75
+      : (CONFIG.scene !== null || CONFIG.view === 'tour') ? 75
       : Math.max(12, Math.min(150, (CONFIG.hold - 2 * CONFIG.fade) / 2 - this.TRANSIT));
     if (CONFIG.planet !== null && CONFIG.planet !== undefined) {
       const byName = this.PLANETS.findIndex(p => p.key === String(CONFIG.planet).toLowerCase());
@@ -1453,7 +1467,32 @@ const planetView = {
     if (p.rings) out.Ds = Math.asin(Math.max(-1, Math.min(1, s[0] * P[0] + s[1] * P[1] + s[2] * P[2])));
     if (p.moons === 'galilean') out.moons = this._galilean(jd, De);
     else if (p.moons === 'moon') out.moons = this._earthMoon(T, F, Rt, U);
+    else if (p.moons === 'charon') out.moons = this._charon(p, jd, dist, F, Rt, U);
     return out;
+  },
+
+  /* Charon rides directly on Pluto's rotation model: the pair is tidally
+     locked and Pluto's IAU prime meridian is DEFINED by the sub-Charon
+     point, so Charon sits along the prime-meridian direction at 16.49
+     Pluto radii (19,596 km / 1,188 km) — verified against Horizons to
+     <1 R_P. */
+  _charon(p, jd, dist, F, Rt, U) {
+    const DEG = Math.PI / 180, P = p.P;
+    const node = this._norm([-P[1], P[0], 0]);
+    const m = [P[1] * node[2] - P[2] * node[1],
+               P[2] * node[0] - P[0] * node[2],
+               P[0] * node[1] - P[1] * node[0]];
+    const Wr = (p.W0 + p.Wd * (jd - 2451545.0 - dist * 0.0057755183)) * DEG;
+    const c = [node[0] * Math.cos(Wr) + m[0] * Math.sin(Wr),
+               node[1] * Math.cos(Wr) + m[1] * Math.sin(Wr),
+               node[2] * Math.cos(Wr) + m[2] * Math.sin(Wr)];
+    const AR = 16.49;
+    return [{
+      X: (c[0] * Rt[0] + c[1] * Rt[1] + c[2] * Rt[2]) * AR,
+      Y: (c[0] * U[0] + c[1] * U[1] + c[2] * U[2]) * AR,
+      front: (c[0] * F[0] + c[1] * F[1] + c[2] * F[2]) < 0,
+      spec: this.CHARONSPEC,
+    }];
   },
 
   /* Galilean moons (Meeus, Astronomical Algorithms ch. 44, low accuracy).
@@ -1833,6 +1872,7 @@ const planetView = {
       const dh = Math.hypot(h3.x, h3.y, h3.z);
       const mag = p.orr.m0 + 5 * Math.log10(dh * dg);
       const size = Math.min(3.4, Math.max(0.9, 0.7 + (5.5 - mag) * 0.3));
+      ctx.globalAlpha = Math.max(0.25, Math.min(1, 1 - (mag - 6) / 8));
       const gr = ctx.createRadialGradient(at[0], at[1], 0, at[0], at[1], size * 4);
       gr.addColorStop(0, p.orr.c + 'AA');
       gr.addColorStop(0.3, p.orr.c + '44');
@@ -1841,6 +1881,7 @@ const planetView = {
       ctx.beginPath(); ctx.arc(at[0], at[1], size * 4, 0, TAU); ctx.fill();
       ctx.fillStyle = p.orr.c;
       ctx.beginPath(); ctx.arc(at[0], at[1], size * 0.75, 0, TAU); ctx.fill();
+      ctx.globalAlpha = 1;
     }
   },
 
@@ -1961,8 +2002,13 @@ const planetView = {
 
 /* ============================================================
    Scene manager — fade through black
+   Two views, one deployment: the default ambient rotation of the
+   three observatory scenes, and ?view=tour (also served at tour/)
+   which dedicates the display to the planet grand tour.
    ============================================================ */
-const scenes = [orrery, localSky, cosmicWeb, planetView];
+const scenes = CONFIG.view === 'tour'
+  ? [planetView]
+  : [orrery, localSky, cosmicWeb];
 scenes.forEach(s => s.init());
 window.addEventListener('resize', () => scenes.forEach(s => s.onResize?.()));
 
@@ -1972,7 +2018,7 @@ const detailEl = captionEl.querySelector('.detail');
 
 let current = CONFIG.scene !== null
   ? Math.min(Math.max(CONFIG.scene, 0), scenes.length - 1) : 0;
-const sceneLocked = CONFIG.scene !== null;
+const sceneLocked = CONFIG.scene !== null || scenes.length === 1;
 let phase = 'in';            // in → hold → out
 let phaseStart = performance.now() / 1000;
 let paused = false;

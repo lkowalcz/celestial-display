@@ -82,11 +82,16 @@ Current scenes:
    Precesses through 4°-wide declination slices (~36 s each, crossfaded);
    each slice baked to an offscreen texture. Reference arcs at even
    redshifts. Falls back to the synthetic web offline/file://.
-4. `planetView` — planet grand tour: all 8 planets on real mission maps
+4. `planetView` — planet grand tour (dedicated view: `?view=tour`, also
+   served at `tour/`; not part of the default ambient rotation): the 8
+   planets plus Pluto on real mission maps
    (data/planets/*.jpg, built by scripts/planet_textures.py — MESSENGER,
    Magellan radar, Blue Marble + VIIRS night, Viking MDIM, Cassini maps of
-   Jupiter and Saturn, HST OPAL 2025 for Uranus/Neptune; per-map longitude
-   conventions recorded in both the script and the planetMaps registry),
+   Jupiter and Saturn, HST OPAL 2025 for Uranus/Neptune with disk-mean
+   color anchored to published true color (Irwin et al. 2024 — the two are
+   genuinely similar; Neptune only modestly bluer), New Horizons MVIC for
+   Pluto; per-map longitude conventions recorded in both the script and
+   the planetMaps registry),
    wrapped per-pixel on orthographic oblate spheres. Rotation from IAU
    pole + W models with per-planet epoch offsets fitted against JPL
    Horizons sub-observer longitudes (residual ≤0.3°, 2000–2026; conv ±1
@@ -94,7 +99,9 @@ Current scenes:
    shading from true sun geometry (Mercury/Venus show their real phases,
    captioned); Saturn's rings at real radii with the true opening angle
    and unlit-face dimming; Galilean moons (Meeus, Horizons-verified to
-   ~0.05 R_J) and Earth's Moon; Gaia field behind each planet's true
+   ~0.05 R_J), Earth's Moon, and Charon (tidally locked: it rides on
+   Pluto's rotation model along the sub-Charon prime meridian, verified
+   against Horizons to <1 R_P); Gaia field behind each planet's true
    geocentric direction, camera up = the planet's IAU pole. Earth is
    viewed from an inertial hover over ?lat/lon (rotates beneath; VIIRS
    night lights on the dark side). The tour dwells `dwell` seconds per
@@ -110,6 +117,7 @@ Current scenes:
 
 | param     | default        | meaning                                  |
 |-----------|----------------|------------------------------------------|
+| `view`    | ambient        | `ambient`: 3-scene rotation; `tour`: planet grand tour (also at `tour/`) |
 | `hold`    | 40             | seconds per scene before crossfade       |
 | `fade`    | 2.6            | crossfade duration (through black)       |
 | `density` | auto by pixels | particle-count multiplier (0.35–2.0)     |
@@ -118,12 +126,14 @@ Current scenes:
 | `lat`     | 51.4779        | observer latitude for Local Sky (deg, N+)|
 | `lon`     | 0              | observer longitude (deg, E+)             |
 | `callouts`| 4              | Local Sky: label the N closest bodies    |
-| `dwell`   | auto by hold   | Planets: seconds per planet (min 10)     |
-| `planet`  | mercury        | Planets: starting planet (name or 0–7)   |
+| `dwell`   | 75 (tour)      | Planets: seconds per planet (min 10)     |
+| `planet`  | mercury        | Planets: starting planet (name or 0–8)   |
 
 Typical deployments:
 - iPad frame: `?density=0.6&labels=off&hold=900`
 - 4K wall OLED: `?hold=1800`
+- dedicated planet tour: `tour/` (equivalently `?view=tour`), e.g.
+  `tour/?dwell=180&labels=off`
 
 ## Performance budget
 
@@ -143,6 +153,8 @@ break, and prefers-reduced-motion slows all drift.
 ## Repo layout
 
 - `index.html` — the entire app
+- `tour/index.html` — tiny stub: forwards to `../?view=tour` (clean path
+  for the planet-tour deployment; all logic stays in the single app)
 - `data/` — preprocessed binary/JSON datasets (committed if <10MB, else
   documented download)
 - `scripts/` — offline preprocessing (Python), never required at runtime

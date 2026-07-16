@@ -52,13 +52,16 @@ Possibly both, as separate scenes.
 
 ## 4. Planet tour — DONE 2026-07
 
-Shipped: `planetView` grand tour — all 8 planets on real mission maps
-(MESSENGER, Magellan, Blue Marble + VIIRS night, Viking, Cassini ×2,
-HST OPAL 2025), IAU rotation models Horizons-fitted per planet, true
-phases and terminators, Saturn's rings at the real (near-edge-on)
-opening, Galilean moons + Earth's Moon, camera slews across the real
-sky between planets with the Sun and other planets as true-position
-dots. Remaining refinements:
+Shipped: `planetView` grand tour — the 8 planets plus Pluto on real
+mission maps (MESSENGER, Magellan, Blue Marble + VIIRS night, Viking,
+Cassini ×2, HST OPAL 2025 true-color-anchored, New Horizons MVIC), IAU
+rotation models Horizons-fitted per body, true phases and terminators,
+Saturn's rings at the real (near-edge-on) opening, Galilean moons +
+Earth's Moon + Charon (rides on Pluto's rotation model — tidal lock),
+camera slews across the real sky between planets with the Sun and other
+planets as true-position dots. Lives on its own path (`tour/`,
+`?view=tour`); the default rotation keeps the three observatory scenes.
+Remaining refinements:
 
 - Moon shadows on the disk (eclipses/transit shadows) for Jupiter.
 - Titan and the bright Saturn moons (needs a trustworthy epoch theory —

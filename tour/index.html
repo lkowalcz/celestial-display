@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Celestial Display — Planets</title>
+<style>html, body { background: #000; }</style>
+<script>
+  // Clean path for the dedicated planet grand tour: forwards to the single
+  // app with ?view=tour, preserving any other query params (lat, dwell, …).
+  const q = new URLSearchParams(location.search);
+  q.set('view', 'tour');
+  location.replace('../?' + q.toString());
+</script>
+</head>
+<body></body>
+</html>
