@@ -1385,6 +1385,27 @@ const planetView = {
     this._tour = (this._tour + 1) % this.PLANETS.length;
     this._cap = ''; this._title = '';
     this._earthSeg = null; this._earthF = null;
+    this._jump = null;
+  },
+
+  /* animated skip to an adjacent planet (arrows/buttons in the dedicated
+     tour view): the same camera slew as the scheduled transits, in
+     either direction */
+  jump(dir) {
+    if (this._lastT === undefined) return;
+    const N = this.PLANETS.length;
+    let from;
+    if (this._jump) {
+      from = this._jump.to;
+    } else {
+      const tL = this._lastT - this.tAnchor;
+      const CYC = this.DWELL + this.TRANSIT;
+      const seg = Math.floor(tL / CYC);
+      const ph = tL - seg * CYC;
+      const iA = ((this._tour + seg) % N + N) % N;
+      from = ph > this.DWELL ? (iA + 1) % N : iA;   // mid-transit: from its target
+    }
+    this._jump = { from, to: ((from + dir) % N + N) % N, start: this._lastT };
   },
 
   _eq(x, y, z) {
@@ -1887,15 +1908,33 @@ const planetView = {
 
   draw(t) {
     const minDim = Math.min(W, H);
-    const tL = t - this.tAnchor;
-    const CYC = this.DWELL + this.TRANSIT;
-    const seg = Math.floor(tL / CYC);
-    const ph = tL - seg * CYC;
+    this._lastT = t;
     const N = this.PLANETS.length;
-    const iA = ((this._tour + seg) % N + N) % N;
-    const A = this.PLANETS[iA], Bp = this.PLANETS[(iA + 1) % N];
-    const prog = ph <= this.DWELL ? 0 : Math.min(1, (ph - this.DWELL) / this.TRANSIT);
-    const jd = this.jdAnchor + tL * this.SPEED / 86400 * MOTION;
+    const CYC = this.DWELL + this.TRANSIT;
+    let iA, iB, prog, ph, seg = 0;
+    if (this._jump && (t - this._jump.start) / this.TRANSIT >= 1) {
+      // manual skip arrived: re-anchor the tour at the target, keeping
+      // the ephemeris clock continuous
+      this.jdAnchor += (t - this.tAnchor) * this.SPEED / 86400 * MOTION;
+      this.tAnchor = t;
+      this._tour = this._jump.to;
+      this._visit = (this._visit || 0) + 1;
+      this._jump = null;
+    }
+    if (this._jump) {
+      iA = this._jump.from; iB = this._jump.to;
+      prog = Math.max(1e-4, (t - this._jump.start) / this.TRANSIT);
+      ph = this.DWELL + prog * this.TRANSIT;
+    } else {
+      const tL = t - this.tAnchor;
+      seg = Math.floor(tL / CYC);
+      ph = tL - seg * CYC;
+      iA = ((this._tour + seg) % N + N) % N;
+      iB = (iA + 1) % N;
+      prog = ph <= this.DWELL ? 0 : Math.min(1, (ph - this.DWELL) / this.TRANSIT);
+    }
+    const A = this.PLANETS[iA], Bp = this.PLANETS[iB];
+    const jd = this.jdAnchor + (t - this.tAnchor) * this.SPEED / 86400 * MOTION;
 
     planetMaps.request(A.key);
     if (ph > this.DWELL * 0.4) planetMaps.request(Bp.key);
@@ -1903,7 +1942,7 @@ const planetView = {
     // freeze Earth's camera direction per visit (inertial hover: the
     // planet rotates under the camera like every other stop)
     if (A.zenith) {
-      const segKey = seg + ':' + iA;
+      const segKey = (this._visit || 0) + ':' + seg + ':' + iA;
       if (this._earthSeg !== segKey) { this._earthSeg = segKey; this._earthF = null; }
       if (!this._earthF) this._earthF = this.system(jd, A, null).F;
     }
@@ -2101,8 +2140,14 @@ function updateDots() {
 }
 updateDots();
 
-document.getElementById('prev').addEventListener('click', () => advance(-1));
-document.getElementById('next').addEventListener('click', () => advance(1));
+/* in the dedicated tour view, prev/next travel between planets with the
+   same animated slew as the scheduled transits */
+function nav(dir) {
+  if (scenes.length === 1 && scenes[current].jump) scenes[current].jump(dir);
+  else advance(dir);
+}
+document.getElementById('prev').addEventListener('click', () => nav(-1));
+document.getElementById('next').addEventListener('click', () => nav(1));
 pauseBtn.addEventListener('click', togglePause);
 
 function togglePause() {
@@ -2121,8 +2166,8 @@ window.addEventListener('mousemove', revealControls);
 window.addEventListener('touchstart', revealControls, { passive: true });
 
 window.addEventListener('keydown', e => {
-  if (e.key === 'ArrowRight') { advance(1); revealControls(); }
-  else if (e.key === 'ArrowLeft') { advance(-1); revealControls(); }
+  if (e.key === 'ArrowRight') { nav(1); revealControls(); }
+  else if (e.key === 'ArrowLeft') { nav(-1); revealControls(); }
   else if (e.key === ' ') { e.preventDefault(); togglePause(); revealControls(); }
 });
 </script>
