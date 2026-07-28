@@ -60,7 +60,7 @@ Saturn's rings at the real (near-edge-on) opening, Galilean moons +
 Earth's Moon + Charon (rides on Pluto's rotation model — tidal lock),
 camera slews across the real sky between planets with the Sun and other
 planets as true-position dots. Lives on its own path (`tour/`,
-`?view=tour`); the default rotation keeps the observatory scenes.
+`?view=tour`); the default rotation keeps the three observatory scenes.
 Remaining refinements:
 
 - Moon shadows on the disk (eclipses/transit shadows) for Jupiter.
@@ -78,40 +78,7 @@ Remaining refinements:
   reads oddly on the wall.
 - Newer OPAL maps as they are released (script re-run + year bump).
 
-## 5. Black hole — DONE 2026-07
-
-Shipped: `blackHole` — M87* and Sgr A*, each as the recorded EHT image
-and as a Schwarzschild ray-trace at the same mass, distance and
-inclination, alternating every `bhdwell` seconds. Geodesics are
-integrated at load; shadow, photon ring, n = 1 lensed image and g⁴
-Doppler beaming all fall out of them. Real images recovered from the
-published ESO/EHT renderings by `scripts/eht_images.py` into
-`data/eht/` (~13 KB total). Validation: capture boundary on 3√3 GM/c²
-to within a table step; blurred to the 20 μas beam, the model's M87*
-ring asymmetry is 2.34× against 2.41× measured.
-
-Possible refinements:
-
-- Kerr rather than Schwarzschild. The real gain is not the slightly
-  non-circular shadow but frame dragging on the inner disk and a
-  correct ISCO (1.24 GM/c² for a near-maximal a = 0.998, which would shrink the
-  model's ring toward the measured one). Needs Boyer–Lindquist
-  geodesics with the Carter constant — a genuinely bigger integrator,
-  and the 1-D b-table trick no longer applies since trajectories stop
-  being planar.
-- Emission inside the ISCO. The model's ring is ~33% wider than the
-  measured one precisely because a Keplerian disk stops there while the
-  real 1.3 mm plasma does not. Currently captioned rather than modelled;
-  a plunging-region prescription would close most of the gap.
-- The polarized images (EHT 2021 for M87*, 2024 for Sgr A*) — the
-  magnetic-field structure drawn as short ticks over the ring. The data
-  exists at `2023-D01-01` / `2024-D02-01`, though as visibilities.
-- The n ≥ 2 photon subrings are computed but sub-pixel; a zoomed inset
-  could show them.
-- M87*'s 2018 epoch (published 2025) alongside 2017 — the bright arc
-  moved, which is a real and legible result.
-
-## 6. Additional scene candidates
+## 5. Additional scene candidates
 
 - ~~Planets, Moon, and Sun in the Local Sky scene~~ — DONE 2026-07.
 
@@ -125,7 +92,7 @@ Possible refinements:
 - Exoplanet systems: confirmed multi-planet systems drawn to the same
   log-radial grammar as the orrery, rotating through systems.
 
-## 7. Infrastructure
+## 6. Infrastructure
 
 - Auto-reload: displays should poll a version string (e.g., a `version.json`)
   every few hours and reload when it changes, so kiosk devices pick up
