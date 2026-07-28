@@ -164,6 +164,8 @@ const CONFIG = {
   lon:      num('lon', 0),                  // observer longitude (deg, E+)
   callouts: Math.floor(num('callouts', 4)), // Local Sky: label the N closest bodies in frame
   planet:   params.get('planet'),           // Planets: starting planet (name or 0-7)
+  bh:       params.get('bh'),               // Black Hole: lock to 'm87' or 'sgra'
+  bhdwell:  Math.max(20, num('bhdwell', 110)), // Black Hole: seconds per source
 };
 
 const SCENE_HOLD = CONFIG.hold;
@@ -2123,6 +2125,638 @@ const planetView = {
 };
 
 /* ============================================================
+   SCENE 4 — Black hole (GR ray-trace + the recorded EHT image)
+
+   Two black holes have been imaged at horizon scale: M87*
+   (observed April 2017, published 2019) and Sgr A* (same
+   campaign, published 2022). Each appears here twice — as the
+   image the array actually recorded, and as a ray-trace of a
+   thin accretion disk around a black hole of that mass, at that
+   distance, at that inclination.
+
+   The trace is not a texture and not an impression. Null
+   geodesics are integrated in Schwarzschild geometry,
+
+       d²u/dφ² = −u + 3u²,     u = GM/(c²r),
+
+   once at load, for a grid of impact parameters b. Everything
+   the image shows falls out of those trajectories:
+
+   · the shadow — rays with b < 3√3 GM/c² end on the horizon;
+   · the photon ring at b = 3√3, where the deflection diverges;
+   · the lensed far side of the disk arcing over and under the
+     shadow: the second (n = 1) equatorial crossing of one ray;
+   · the one-sided brightness. A photon's conserved angular
+     momentum about the disk axis is L_z/E = −α sin i for a pixel
+     at horizontal offset α, so the combined Doppler and
+     gravitational shift of a circular Keplerian emitter is
+
+         g = √(1 − 3GM/c²r) / (1 + Ω α sin i),
+
+     and the observed brightness carries g⁴ (I_ν/ν³ is invariant;
+     the fourth power is the frequency-integrated form). At
+     M87*'s 17° inclination that is a factor of ~2.6 between the
+     approaching and receding sides — which is why the recorded
+     ring is brightest to the south, and why the trace and the
+     inset agree about where the bright arc sits.
+
+   What it is not, all captioned: Schwarzschild, not Kerr — no
+   spin. An optically thin disk (correct at 1.3 mm) summed over
+   its first two images only; the n ≥ 2 rings are far thinner
+   than a pixel. An emissivity ∝ r⁻² between the ISCO and 18
+   GM/c², chosen for simplicity and not fitted to either source.
+
+   The recorded images carry none of those assumptions, which is
+   why they are shown alongside — and why they are gray. The
+   trace is colored by g, because g is something the model knows.
+   The data is monochrome, because intensity is all the data has.
+   ============================================================ */
+const blackHole = {
+  title: 'Black Hole',
+  detail: 'Schwarzschild ray-trace · awaiting images',
+
+  /* --- geodesic table --- */
+  NB: 1536,                    // impact-parameter samples
+  NPHI: 384,                   // φ samples per ray
+  SUB: 3,                      // RK4 substeps per stored sample
+  B_MAX: 30,                   // largest impact parameter, GM/c²
+  PHI_MAX: 3.2 * Math.PI,      // far enough for the n = 0 and n = 1 images
+
+  /* --- disk --- */
+  R_IN: 6,                     // ISCO for a = 0, GM/c²
+  R_OUT: 18,
+  R_TAPER: 13,                 // emissivity rolls off from here to R_OUT
+  FOV_M: 40,                   // rendered field, GM/c² across
+  NR: 96, NA: 768,             // turbulence texture (radial × azimuthal)
+  TONE_MAX: 2.5,               // linear intensity mapped by the tone table
+  TURB_LIFE: 45,               // turbulent correlation time, display seconds
+  G_LO: 0.65, G_HI: 1.15,      // shift factor g spanned by the color ramp
+  ISCO_PERIOD_S: 26,           // display seconds for one orbit at the ISCO
+
+  /* Published parameters. These live here rather than in the fetched
+     JSON because the trace has to run with no network at all; the
+     preprocessing script keeps its own copy for provenance.
+
+     `paBright` is the one number taken from the recorded image rather
+     than from theory, and it is worth being explicit about: general
+     relativity fixes how *strongly* the disk is beamed, but nothing
+     fixes which way it spins on the sky. So the model is rotated until
+     its approaching side lands where the reconstruction's bright arc
+     actually is — measured as the peak of the azimuthal profile around
+     the ring, in degrees clockwise from up in the image as displayed.
+     The contrast is then a prediction, and a checkable one: at i = 17°
+     the g⁴ beaming gives ~2.6× between the approaching and receding
+     sides of M87*, against 2.4× measured in the recorded image. */
+  SOURCES: [
+    { id: 'm87', name: 'M87*', host: 'Messier 87',
+      massMsun: 6.5e9, thetaG: 3.819, ringUas: 42.0, ringErr: 3.0,
+      inc: 17, paBright: 172, dist: '16.8 Mpc', epoch: '2017-04-11', pub: 2019 },
+    { id: 'sgra', name: 'Sgr A*', host: 'Milky Way',
+      massMsun: 4.14e6, thetaG: 5.028, ringUas: 51.8, ringErr: 2.3,
+      inc: 30, paBright: 32, dist: '8.127 kpc', epoch: '2017-04-07', pub: 2022 },
+  ],
+
+  geo: null, noise: null, ramp: null, tone: null,
+  S: 0, buf: null, img: null, off: null,
+  lut: null, subIdx: -1, _cap: '',
+
+  /* ---------- one-time: integrate the geodesics ----------
+     u'' = −u + 3u², from u = 0 with u' = 1/b (a ray arriving from
+     infinity), classical RK4. A ray ends when it reaches the horizon
+     (u > 1/2) or returns to infinity (u < 0). */
+  buildGeodesics() {
+    const NB = this.NB, NPHI = this.NPHI, SUB = this.SUB;
+    const dphi = this.PHI_MAX / (NPHI - 1), h = dphi / SUB;
+    const u = new Float32Array(NB * NPHI);
+    const nEnd = new Int32Array(NB);
+    for (let i = 0; i < NB; i++) {
+      const b = this.B_MAX * (i + 0.5) / NB;
+      const base = i * NPHI;
+      let y = 0, v = 1 / b, n = NPHI;
+      for (let j = 1; j < NPHI; j++) {
+        for (let s = 0; s < SUB; s++) {
+          const k1y = v, k1v = -y + 3 * y * y;
+          let yt = y + h / 2 * k1y;
+          const k2y = v + h / 2 * k1v, k2v = -yt + 3 * yt * yt;
+          yt = y + h / 2 * k2y;
+          const k3y = v + h / 2 * k2v, k3v = -yt + 3 * yt * yt;
+          yt = y + h * k3y;
+          const k4y = v + h * k3v, k4v = -yt + 3 * yt * yt;
+          y += h / 6 * (k1y + 2 * k2y + 2 * k3y + k4y);
+          v += h / 6 * (k1v + 2 * k2v + 2 * k3v + k4v);
+        }
+        u[base + j] = y;
+        if (y > 0.5 || y < 0) { n = j; break; }   // horizon, or escaped
+      }
+      nEnd[i] = n;
+    }
+    this.geo = { u, nEnd, dphi };
+  },
+
+  /* ---------- one-time: advected emissivity mottling ----------
+     A smooth random field on (r, ϑ), periodic in ϑ. Differential
+     rotation does the rest: each radius carries its own Keplerian
+     rate, so the field shears into trailing spirals on its own.
+
+     Two fields, not one. Shear is unbounded — run a single field
+     long enough and the winding outruns the pixel grid and turns
+     to aliased hash. So each field lives TURB_LIFE seconds and the
+     pair crossfades, sin²/cos² so they sum to one and each is
+     invisible at the instant it resets. That is not a dodge: real
+     accretion turbulence decorrelates after a few orbits, and
+     TURB_LIFE is a little under two orbits at the ISCO. */
+  buildNoiseField() {
+    const NR = this.NR, NA = this.NA;
+    let a = new Float32Array(NR * NA);
+    for (let i = 0; i < a.length; i++) a[i] = gauss();
+    let b = new Float32Array(NR * NA);
+    // Narrow in ϑ, coherent in r: that is what shears into trailing spirals
+    // once each radius carries its own orbital rate. Smoothing the other way
+    // round just gives blobs.
+    for (let pass = 0; pass < 3; pass++) {
+      const wa = 4, wr = 6;
+      for (let r = 0; r < NR; r++) {                    // wrap in ϑ
+        const row = r * NA;
+        for (let k = 0; k < NA; k++) {
+          let s = 0;
+          for (let d = -wa; d <= wa; d++) s += a[row + ((k + d + NA) % NA)];
+          b[row + k] = s / (2 * wa + 1);
+        }
+      }
+      for (let r = 0; r < NR; r++) {                    // clamp in r
+        const row = r * NA;
+        for (let k = 0; k < NA; k++) {
+          let s = 0;
+          for (let d = -wr; d <= wr; d++) {
+            s += b[Math.min(NR - 1, Math.max(0, r + d)) * NA + k];
+          }
+          a[row + k] = s / (2 * wr + 1);
+        }
+      }
+    }
+    let mean = 0;
+    for (let i = 0; i < a.length; i++) mean += a[i];
+    mean /= a.length;
+    let sd = 0;
+    for (let i = 0; i < a.length; i++) sd += (a[i] - mean) ** 2;
+    sd = Math.sqrt(sd / a.length) || 1;
+    for (let i = 0; i < a.length; i++) {
+      a[i] = Math.max(0.35, Math.min(1.9, 1 + 0.34 * (a[i] - mean) / sd));
+    }
+    return a;
+  },
+
+  buildNoise() { this.noise = [this.buildNoiseField(), this.buildNoiseField()]; },
+
+  /* g → color. The one place this display introduces color for a
+     physical reason, and it is anchored, not stretched to fit: white
+     is g = 1, light arriving at the frequency it left at. Below that
+     — which is most of the disk, since gravitational redshift alone
+     costs √(1 − 3GM/c²r) — it runs to warm amber; above it, where
+     the approaching side beats the redshift, to ice blue. Only the
+     outer approaching edge gets there, and that is the honest
+     picture: this disk is net-redshifted nearly everywhere. */
+  buildRamp() {
+    const white = (1 - this.G_LO) / (this.G_HI - this.G_LO);
+    const stops = [[0, [201, 162, 107]], [white, [232, 236, 242]], [1, [127, 180, 217]]];
+    const ramp = new Float32Array(256 * 3);
+    for (let i = 0; i < 256; i++) {
+      const x = i / 255;
+      const k = x < white ? 0 : 1;
+      const f = (x - stops[k][0]) / (stops[k + 1][0] - stops[k][0]);
+      for (let c = 0; c < 3; c++) {
+        ramp[i * 3 + c] = stops[k][1][c] + (stops[k + 1][1][c] - stops[k][1][c]) * f;
+      }
+    }
+    this.ramp = ramp;
+    // Tone curve: near-linear at the bottom so the outer disk keeps its
+    // structure, with a soft shoulder for the photon ring. Table lookup —
+    // an exp per pixel per frame is not affordable.
+    const tone = new Float32Array(1024);
+    for (let i = 0; i < 1024; i++) {
+      tone[i] = 1 - Math.exp(-1.6 * (i / 1024) * this.TONE_MAX);
+    }
+    this.tone = tone;
+  },
+
+  /* ---------- per-source bake: screen pixel → disk ----------
+     For each pixel: impact parameter b and the ray's orbital plane
+     follow from the image coordinates; the equatorial crossings are
+     then a closed-form trig solve (A cos φ + B sin φ = 0), and the
+     radius at each crossing is one lookup into the geodesic table. */
+  bake() {
+    const S = this.S, sub = this.SOURCES[this.subIdx];
+    const { u, nEnd, dphi } = this.geo;
+    const NPHI = this.NPHI, NB = this.NB, NA = this.NA, NR = this.NR;
+    const inc = sub.inc * Math.PI / 180, ci = Math.cos(inc), si = Math.sin(inc);
+    // Screen (X right, Y down) → the disk frame's image coordinates. In that
+    // frame the approaching side is at α < 0, i.e. screen-left; rotating by
+    // paBright + 90° swings it round to the observed position angle.
+    const pa = (sub.paBright + 90) * Math.PI / 180;
+    const cp = Math.cos(pa), sp = Math.sin(pa);
+    const half = this.FOV_M / 2;
+    const R_IN = this.R_IN, R_OUT = this.R_OUT, R_TAP = this.R_TAPER;
+
+    const n = S * S;
+    const L = this.lut && this.lut.n === n ? this.lut : (this.lut = {
+      n,
+      gain: [new Float32Array(n), new Float32Array(n)],
+      th: [new Float32Array(n), new Float32Array(n)],
+      om: [new Float32Array(n), new Float32Array(n)],
+      off: [new Int32Array(n), new Int32Array(n)],
+      amp: [new Float32Array(n), new Float32Array(n)],
+      tint: new Uint8Array(n),
+    });
+    L.gain[0].fill(0); L.gain[1].fill(0);
+
+    // Keplerian rate in texels of ϑ per display second
+    const rate = (2 * Math.PI * Math.pow(this.R_IN, 1.5)) / this.ISCO_PERIOD_S;
+    const omScale = rate * NA / (2 * Math.PI);
+    let gmax = 0;
+
+    /* Supersample. The shadow's edge and the n = 1 lensed ring are both
+       sub-pixel features — a binary hit test on pixel centres stair-steps
+       the one and breaks the other into dashes. So average the *gain* over
+       SS×SS subsamples, which is what antialiases them, while taking the
+       advection phase from the brightest subsample, which keeps the moving
+       pattern coherent instead of averaging it into mush. */
+    const SS = 2, SSQ = SS * SS;
+    const gSum = [0, 0], gBest = [0, 0];
+    const bTh = [0, 0], bOm = [0, 0], bOff = [0, 0];
+    const G_LO = this.G_LO, G_SPAN = this.G_HI - this.G_LO;
+
+    for (let py = 0; py < S; py++) {
+      for (let px = 0; px < S; px++) {
+        const i = py * S + px;
+        gSum[0] = gSum[1] = gBest[0] = gBest[1] = 0;
+        let wsum = 0, tsum = 0;
+
+        for (let q = 0; q < SSQ; q++) {
+          const X = ((px + ((q % SS) + 0.5) / SS) / S * 2 - 1) * half;
+          const Y = ((py + (((q / SS) | 0) + 0.5) / SS) / S * 2 - 1) * half;
+          const al = X * cp + Y * sp;        // image coords in the disk frame
+          const be = -X * sp + Y * cp;
+          const b = Math.hypot(al, be);
+          if (b < 1e-6 || b >= this.B_MAX) continue;
+
+          const ib = Math.min(NB - 1, (b / this.B_MAX * NB) | 0);
+          const base = ib * NPHI, last = nEnd[ib] - 1;
+          const sz = (be / b) * si;
+          // crossings of the equatorial plane: cos φ·cos i + sin φ·s_z = 0
+          let ph = Math.atan2(-ci, sz);
+          ph = ((ph % Math.PI) + Math.PI) % Math.PI;
+          if (ph < 1e-4) ph += Math.PI;
+
+          const sx = -(be / b) * ci, sy = al / b;
+          for (let k = 0; k < 2; k++, ph += Math.PI) {
+            const fj = ph / dphi;
+            const j0 = fj | 0;
+            if (j0 + 1 > last) break;        // ray ended before this crossing
+            const uu = u[base + j0] + (u[base + j0 + 1] - u[base + j0]) * (fj - j0);
+            if (uu <= 0) break;
+            const r = 1 / uu;
+            if (r < R_IN || r > R_OUT) continue;
+
+            const om = Math.pow(r, -1.5);
+            const denom = 1 + om * al * si;
+            if (denom <= 0.05) continue;
+            const g = Math.sqrt(1 - 3 / r) / denom;
+            // emissivity ∝ r⁻², rolled off to zero at the outer edge so the
+            // disk fades out instead of ending on a drawn circle
+            let em = Math.pow(r / R_IN, -2);
+            if (r > R_TAP) em *= smooth(1 - (r - R_TAP) / (R_OUT - R_TAP));
+            const gain = (g * g) * (g * g) * em;
+
+            gSum[k] += gain;
+            if (gain > gBest[k]) {
+              gBest[k] = gain;
+              const c = Math.cos(ph), s = Math.sin(ph);
+              const Px = c * si + s * sx, Py = s * sy;
+              let th = Math.atan2(Py, Px);
+              if (th < 0) th += 2 * Math.PI;
+              bTh[k] = th * NA / (2 * Math.PI);
+              bOm[k] = -om * omScale;        // pattern advects with the fluid
+              bOff[k] = Math.min(NR - 1,
+                ((r - R_IN) / (R_OUT - R_IN) * NR) | 0) * NA;
+            }
+            wsum += gain;
+            tsum += gain * Math.max(0, Math.min(1, (g - G_LO) / G_SPAN));
+          }
+        }
+
+        for (let k = 0; k < 2; k++) {
+          L.gain[k][i] = gSum[k] / SSQ;
+          if (gSum[k] > 0) {
+            L.th[k][i] = bTh[k]; L.om[k][i] = bOm[k]; L.off[k][i] = bOff[k];
+          }
+        }
+        if (wsum > 0) {
+          L.tint[i] = Math.round(255 * tsum / wsum);
+          const tot = L.gain[0][i] + L.gain[1][i];
+          if (tot > gmax) gmax = tot;
+        }
+      }
+    }
+    const norm = gmax > 0 ? 1 / gmax : 1;
+    for (let k = 0; k < 2; k++) {
+      const a = L.gain[k];
+      for (let i = 0; i < n; i++) a[i] *= norm;
+    }
+
+    /* Bandlimit the mottling. Two places undersample it badly: the n = 1
+       image, which folds an entire disk face into an annulus a few pixels
+       wide, and the inner disk, where shear winds the pattern fastest. Where
+       the sampled phase moves by more than a texture feature per screen
+       pixel, fade that pixel's modulation toward the mean — the alternative
+       is moiré, which would be a rendering artifact masquerading as
+       structure. Phase gradient is measured over half a turbulence lifetime,
+       which is where the winding typically sits. */
+    const FEAT = 6;                                  // texels per feature
+    const tHalf = this.TURB_LIFE * 0.5;
+    for (let k = 0; k < 2; k++) {
+      const gk = L.gain[k], tk = L.th[k], ok = L.om[k], ak = L.amp[k];
+      for (let y = 0; y < S; y++) {
+        for (let x = 0; x < S; x++) {
+          const i = y * S + x;
+          if (gk[i] <= 0) { ak[i] = 0; continue; }
+          const pi = tk[i] + ok[i] * tHalf;
+          let m = 0;
+          for (let e = 0; e < 4; e++) {
+            const nx = x + (e === 0 ? -1 : e === 1 ? 1 : 0);
+            const ny = y + (e === 2 ? -1 : e === 3 ? 1 : 0);
+            if (nx < 0 || ny < 0 || nx >= S || ny >= S) continue;
+            const j = ny * S + nx;
+            if (gk[j] <= 0) continue;
+            let dp = pi - (tk[j] + ok[j] * tHalf);
+            dp -= Math.round(dp / NA) * NA;          // shortest way round
+            const ad = Math.abs(dp);
+            if (ad > m) m = ad;
+          }
+          ak[i] = m > FEAT ? FEAT / m : 1;
+        }
+      }
+    }
+    L.subIdx = this.subIdx;
+  },
+
+  /* ---------- the recorded images ---------- */
+  sources: {},
+  async loadEHT() {
+    try {
+      const res = await fetch('data/eht/eht.json');
+      if (!res.ok) return;
+      const meta = await res.json();
+      for (const m of meta.sources) {
+        const im = new Image();
+        await new Promise((ok, no) => {
+          im.onload = ok; im.onerror = no; im.src = `data/eht/${m.id}.png`;
+        });
+        // grayscale by design — the reconstruction carries intensity and
+        // nothing else — but warmed to the display's star white
+        const c = document.createElement('canvas');
+        c.width = c.height = m.px;
+        const g2 = c.getContext('2d');
+        g2.drawImage(im, 0, 0);
+        g2.globalCompositeOperation = 'multiply';
+        g2.fillStyle = '#E8ECF2';
+        g2.fillRect(0, 0, m.px, m.px);
+        this.sources[m.id] = { meta: m, canvas: c };
+      }
+      this._cap = '';
+    } catch (e) {
+      console.warn('EHT images unavailable, ray-trace only:', e);
+    }
+  },
+
+  init() {
+    this.buildGeodesics();
+    this.buildNoise();
+    this.buildRamp();
+    this.loadEHT();
+  },
+
+  onResize() { this.S = 0; },
+
+  ensureBuffer() {
+    const want = Math.max(240, Math.min(480,
+      Math.round(Math.min(W, H) * 0.60 * Math.sqrt(Math.min(D, 1.4)))));
+    if (this.S === want && this.img) return;
+    this.S = want;
+    this.off = document.createElement('canvas');
+    this.off.width = this.off.height = want;
+    this.buf = this.off.getContext('2d');
+    this.img = this.buf.createImageData(want, want);
+    const d = this.img.data;
+    for (let p = 3; p < d.length; p += 4) d[p] = 255;
+    this.lut = null;
+  },
+
+  /* ---------- per-frame: advect and shade ---------- */
+  render(t) {
+    const S = this.S, L = this.lut, NA = this.NA;
+    const d = this.img.data, ramp = this.ramp, tone = this.tone;
+    const nA = this.noise[0], nB = this.noise[1];
+    const TSCALE = 1024 / this.TONE_MAX;
+    const g0 = L.gain[0], g1 = L.gain[1];
+    const t0 = L.th[0], t1 = L.th[1], o0 = L.om[0], o1 = L.om[1];
+    const f0 = L.off[0], f1 = L.off[1], tint = L.tint;
+    const m0 = L.amp[0], m1 = L.amp[1];
+    const n = S * S;
+
+    // the two turbulence fields, half a lifetime out of phase
+    const T = this.TURB_LIFE;
+    const tA = t - Math.floor(t / T) * T;
+    const tB = tA < T / 2 ? tA + T / 2 : tA - T / 2;
+    const s = Math.sin(Math.PI * tA / T), wA = s * s, wB = 1 - wA;
+    // renormalize so the mottling keeps its contrast through the handover
+    const inv = 1 / Math.sqrt(wA * wA + wB * wB);
+    const cA = wA * inv, cB = wB * inv;
+
+    for (let i = 0, p = 0; i < n; i++, p += 4) {
+      let I = 0;
+      const a0 = g0[i];
+      if (a0 > 0) {
+        const off = f0[i], om = o0[i];
+        let a = t0[i] + om * tA; a -= Math.floor(a / NA) * NA;
+        let b = t0[i] + om * tB; b -= Math.floor(b / NA) * NA;
+        const q = m0[i];
+        I += a0 * (1 + q * (cA * (nA[off + (a | 0)] - 1) + cB * (nB[off + (b | 0)] - 1)));
+      }
+      const a1 = g1[i];
+      if (a1 > 0) {
+        const off = f1[i], om = o1[i];
+        let a = t1[i] + om * tA; a -= Math.floor(a / NA) * NA;
+        let b = t1[i] + om * tB; b -= Math.floor(b / NA) * NA;
+        const q = m1[i];
+        I += a1 * (1 + q * (cA * (nA[off + (a | 0)] - 1) + cB * (nB[off + (b | 0)] - 1)));
+      }
+      if (I <= 0) { d[p] = d[p + 1] = d[p + 2] = 0; continue; }
+      let ti = (I * TSCALE) | 0;
+      const v = tone[ti > 1023 ? 1023 : ti];
+      const c = tint[i] * 3;
+      d[p] = v * ramp[c];
+      d[p + 1] = v * ramp[c + 1];
+      d[p + 2] = v * ramp[c + 2];
+    }
+    this.buf.putImageData(this.img, 0, 0);
+  },
+
+  /* ---------- chrome ---------- */
+  font(px) { return `${px}px 'IBM Plex Mono', monospace`; },
+
+  scaleBar(x, y, pxPerUas, uas, label) {
+    const w = uas * pxPerUas;
+    ctx.strokeStyle = 'rgba(154,163,173,0.55)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x, y - 3); ctx.lineTo(x, y + 3);
+    ctx.moveTo(x, y); ctx.lineTo(x + w, y);
+    ctx.moveTo(x + w, y - 3); ctx.lineTo(x + w, y + 3);
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(154,163,173,0.75)';
+    ctx.font = this.font(8.5);
+    ctx.textAlign = 'center';
+    ctx.fillText(label, x + w / 2, y - 7);
+    ctx.textAlign = 'left';
+  },
+
+  drawInset(sub, x, y, size) {
+    const rec = this.sources[sub.id];
+    if (!rec) return 0;
+    const m = rec.meta;
+    ctx.save();
+    ctx.globalAlpha = 0.92;
+    ctx.drawImage(rec.canvas, x, y, size, size);
+    ctx.restore();
+
+    const pxPerUas = size / m.fov_uas;
+    ctx.strokeStyle = 'rgba(86,94,104,0.45)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x + 0.5, y + 0.5, size - 1, size - 1);
+
+    if (!CONFIG.labels) return size;
+    // the array's resolution, drawn at the same scale as the image
+    const br = m.beam_fwhm_uas * pxPerUas / 2;
+    ctx.save();
+    ctx.setLineDash([2, 3]);
+    ctx.strokeStyle = 'rgba(154,163,173,0.6)';
+    ctx.beginPath();
+    ctx.arc(x + size - br - 8, y + size - br - 8, br, 0, TAU);
+    ctx.stroke();
+    ctx.restore();
+
+    ctx.fillStyle = 'rgba(154,163,173,0.75)';
+    ctx.font = this.font(8.5);
+    ctx.fillText('RECORDED', x, y - 14);
+    ctx.fillStyle = 'rgba(86,94,104,0.8)';
+    ctx.fillText(`EHT ${m.epoch} · beam ${m.beam_fwhm_uas} μas`, x, y - 5);
+    this.scaleBar(x, y + size + 14, pxPerUas, 50, '50 μas');
+    return size;
+  },
+
+  draw(t) {
+    this.ensureBuffer();
+
+    // which source, and the fade through black between them
+    const locked = CONFIG.bh
+      ? this.SOURCES.findIndex(s => s.id === CONFIG.bh.toLowerCase())
+      : -1;
+    const DW = CONFIG.bhdwell, SWAP = 1.4;
+    let idx, vis = 1;
+    if (locked >= 0) {
+      idx = locked;
+    } else {
+      const k = Math.floor(t / DW);
+      idx = ((k % this.SOURCES.length) + this.SOURCES.length) % this.SOURCES.length;
+      const ph = t - k * DW;
+      if (ph < SWAP) vis = smooth(ph / SWAP);
+      else if (ph > DW - SWAP) vis = 1 - smooth((ph - (DW - SWAP)) / SWAP);
+    }
+    if (idx !== this.subIdx || !this.lut || this.lut.subIdx !== idx) {
+      this.subIdx = idx;
+      this.bake();                 // lands in the black of the swap
+    }
+    const sub = this.SOURCES[idx];
+
+    this.render(t * MOTION);
+
+    const S = this.S;
+    const size = Math.min(W, H) * 0.66;
+    const cx = W / 2, cy = H * 0.47;
+    ctx.save();
+    ctx.globalAlpha *= vis;      // multiply: the scene manager's crossfade
+                                 // envelope is already sitting in there
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(this.off, 0, 0, S, S, cx - size / 2, cy - size / 2, size, size);
+
+    const uasPerM = sub.thetaG;
+    const pxPerUas = size / (this.FOV_M * uasPerM);
+
+    if (CONFIG.labels) {
+      // the measured ring diameter, drawn on the model at the model's own
+      // scale — the one mark that ties the two halves of the panel together
+      const rr = sub.ringUas * pxPerUas / 2;
+      ctx.save();
+      ctx.setLineDash([2, 4]);
+      ctx.strokeStyle = 'rgba(86,94,104,0.55)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(cx, cy, rr, 0, TAU);
+      ctx.stroke();
+      ctx.restore();
+
+      const bx = cx - size / 2;
+      ctx.fillStyle = 'rgba(154,163,173,0.75)';
+      ctx.font = this.font(8.5);
+      ctx.fillText('RAY-TRACED', bx, cy - size / 2 - 14);
+      ctx.fillStyle = 'rgba(86,94,104,0.8)';
+      ctx.fillText(`Schwarzschild · i = ${sub.inc}° · disk ${this.R_IN}–${this.R_OUT} GM/c²`
+        + ` · color: shift g, white = 1`, bx, cy - size / 2 - 5);
+
+      this.scaleBar(bx, cy + size / 2 + 18, pxPerUas, 50, '50 μas');
+      // legend for the dashed circle, kept off the image itself
+      const ly = cy + size / 2 + 34;
+      ctx.save();
+      ctx.setLineDash([2, 4]);
+      ctx.strokeStyle = 'rgba(86,94,104,0.55)';
+      ctx.beginPath();
+      ctx.moveTo(bx, ly); ctx.lineTo(bx + 16, ly);
+      ctx.stroke();
+      ctx.restore();
+      ctx.fillStyle = 'rgba(86,94,104,0.8)';
+      ctx.fillText(`measured ring ${sub.ringUas} ± ${sub.ringErr} μas`
+        + ` · model ring is wider — the disk stops at the ISCO`, bx + 22, ly + 3);
+    }
+
+    const inset = Math.min(W, H) * 0.24;
+    if (CONFIG.labels || this.sources[sub.id]) {
+      this.drawInset(sub, W - inset - Math.max(24, W * 0.045),
+        H - inset - Math.max(46, H * 0.10), inset);
+    }
+    ctx.restore();
+
+    // caption: what you are looking at, and how fast time is running
+    const gmC3 = sub.massMsun * 4.925490947e-6;          // GM/c³, seconds
+    const secPerSec = 2 * Math.PI * Math.pow(this.R_IN, 1.5)
+      / this.ISCO_PERIOD_S * gmC3 * MOTION;
+    const rate = secPerSec > 86400 ? `${(secPerSec / 86400).toFixed(1)} d`
+      : secPerSec > 3600 ? `${(secPerSec / 3600).toFixed(1)} h`
+      : `${Math.round(secPerSec)} s`;
+    const mass = sub.massMsun >= 1e9 ? `${(sub.massMsun / 1e9).toFixed(1)}×10⁹`
+      : `${(sub.massMsun / 1e6).toFixed(2)}×10⁶`;
+    const cap = `${sub.name} · ${mass} M☉ · ${sub.dist} · `
+      + `${this.sources[sub.id] ? `EHT ${sub.pub} + ` : ''}`
+      + `ray-trace · 1 s = ${rate}`;
+    if (cap !== this._cap) {
+      this._cap = cap;
+      this.title = `${sub.name} — ${sub.host}`;
+      this.detail = cap;
+      if (scenes[current] === this) setCaption(current);
+    }
+  },
+};
+
+/* ============================================================
    Scene manager — fade through black
    Two views, one deployment: the default ambient rotation of the
    three observatory scenes, and ?view=tour (also served at tour/)
@@ -2130,7 +2764,7 @@ const planetView = {
    ============================================================ */
 const scenes = CONFIG.view === 'tour'
   ? [planetView]
-  : [orrery, localSky, cosmicWeb];
+  : [orrery, localSky, cosmicWeb, blackHole];
 scenes.forEach(s => s.init());
 window.addEventListener('resize', () => scenes.forEach(s => s.onResize?.()));
 

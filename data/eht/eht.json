@@ -1,0 +1,45 @@
+{
+  "note": "Relative intensity recovered by inverting the afmhot display mapping of the published EHT images; pixel scale anchored to the published ring diameter. See scripts/eht_images.py for the exact procedure and caveats.",
+  "sources": [
+    {
+      "id": "m87",
+      "name": "M87*",
+      "px": 160,
+      "fov_uas": 100.0,
+      "ring_diameter_uas": 42.0,
+      "ring_diameter_err_uas": 3.0,
+      "beam_fwhm_uas": 20.0,
+      "theta_g_uas": 3.819,
+      "mass_msun": 6500000000.0,
+      "mass_err_msun": 700000000.0,
+      "distance_label": "16.8 Mpc",
+      "inclination_deg": 17.0,
+      "pa_deg": 198.0,
+      "epoch": "2017-04-11",
+      "published": 2019,
+      "credit": "EHT Collaboration (ESO/eso1907a, CC BY 4.0)",
+      "pedestal": 0.02157,
+      "uas_per_px_src": 0.045214
+    },
+    {
+      "id": "sgra",
+      "name": "Sgr A*",
+      "px": 160,
+      "fov_uas": 100.0,
+      "ring_diameter_uas": 51.8,
+      "ring_diameter_err_uas": 2.3,
+      "beam_fwhm_uas": 20.0,
+      "theta_g_uas": 5.0282,
+      "mass_msun": 4140000.0,
+      "mass_err_msun": 140000.0,
+      "distance_label": "8.127 kpc",
+      "inclination_deg": 30.0,
+      "pa_deg": 150.0,
+      "epoch": "2017-04-07",
+      "published": 2022,
+      "credit": "EHT Collaboration (ESO/eso2208-eht-mwa, CC BY 4.0)",
+      "pedestal": 0.00392,
+      "uas_per_px_src": 0.040648
+    }
+  ]
+}

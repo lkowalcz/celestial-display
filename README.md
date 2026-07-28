@@ -1,10 +1,12 @@
 # Celestial Display
 
-Ambient astronomical art for a framed OLED display. Three rotating scenes —
+Ambient astronomical art for a framed OLED display. Four rotating scenes —
 a log-radial orrery clocked to the real JPL ephemeris, a real-time horizon
 view of the Gaia DR3 sky with the Sun, Moon, and planets where they stand
-right now, and the SDSS DR18 galaxy redshift fan — rendered fullscreen on
-pure black, crossfading through darkness.
+right now, the SDSS DR18 galaxy redshift fan, and a general-relativistic
+ray-trace of M87* and Sgr A* shown beside the images the Event Horizon
+Telescope actually recorded — rendered fullscreen on pure black,
+crossfading through darkness.
 
 The display architecture is deliberately dumb: any device with a browser
 opens one URL in kiosk mode. Development happens here; displays update on
@@ -36,6 +38,8 @@ Configuration is entirely via URL parameters — no code branches per device.
 | `density` | auto by pixels | particle multiplier (0.35–2.0)           |
 | `labels`  | on             | `off` = no planet names / AU rings       |
 | `scene`   | (rotate)       | lock to scene N (0-indexed)              |
+| `bh`      | (alternate)    | black hole: lock to `m87` or `sgra`      |
+| `bhdwell` | 110            | black hole: seconds per source           |
 
 Examples:
 
@@ -47,6 +51,9 @@ Examples:
 
     # orrery only
     https://.../?scene=0
+
+    # black hole only, M87* held
+    https://.../?scene=3&bh=m87
 
 ## Display devices
 
@@ -67,6 +74,12 @@ sample: 736k spectroscopic redshifts (`data/sdss_galaxies.bin`, built by
 `scripts/sdss_preprocess.py`) drawn as a redshift fan that slowly
 precesses through declination slices. Offline or over `file://` both
 scenes fall back to synthetic generators and say so in their captions.
+
+The black hole scene needs no data to render — its image is integrated
+from null geodesics at load — but it shows the two real EHT
+reconstructions alongside, recovered from the published renderings by
+`scripts/eht_images.py` into `data/eht/`. Offline the insets are simply
+omitted and the caption stops claiming them.
 Remaining upgrade ideas live in `docs/ROADMAP.md`.
 
 ## Development conventions
